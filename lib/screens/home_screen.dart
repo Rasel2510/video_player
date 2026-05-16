@@ -1,29 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
-import '../models/video_file.dart';
-import '../services/recent_files_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../domain/entities/video_entity.dart';
+import '../presentation/providers/dependency_providers.dart';
+import '../presentation/providers/recents_provider.dart';
 import 'player_screen.dart';
 import 'folder_browser_screen.dart';
 import 'library_screen.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
+class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tab;
-  List<VideoFile> _recents = [];
-  bool _loadingRecents = true;
 
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 3, vsync: this);
-    _loadRecents();
   }
 
   @override
@@ -32,42 +30,21 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  Future<void> _loadRecents() async {
-    final r = await RecentFilesService.getRecents();
-    if (mounted)
-      setState(() {
-        _recents = r;
-        _loadingRecents = false;
-      });
-  }
-
-  void _openVideo(VideoFile vf) {
+  void _openVideo(VideoEntity video) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PlayerScreen(filePath: vf.path, fileName: vf.name),
+        builder: (_) =>
+            PlayerScreen(filePath: video.path, fileName: video.name),
       ),
-    ).then((_) => _loadRecents());
+    ).then((_) => ref.invalidate(recentsProvider));
   }
 
   Future<void> _pickSingleVideo() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.video);
-    if (result != null && result.files.single.path != null && mounted) {
-      final f = result.files.single;
-      final vf = VideoFile(
-        path: f.path!,
-        name: f.name,
-        size: f.size,
-        modified: DateTime.now(),
-      );
-      await RecentFilesService.addRecent(vf);
-      _openVideo(vf);
+    final video = await ref.read(pickVideoUseCaseProvider).call();
+    if (video != null && mounted) {
+      _openVideo(video);
     }
-  }
-
-  Future<void> _removeRecent(String path) async {
-    await RecentFilesService.removeRecent(path);
-    _loadRecents();
   }
 
   Future<void> _clearAllRecents() async {
@@ -90,13 +67,14 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
     if (ok == true) {
-      await RecentFilesService.clearAll();
-      _loadRecents();
+      await ref.read(recentsProvider.notifier).clearAll();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final recentsAsync = ref.watch(recentsProvider);
+
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
       appBar: AppBar(
@@ -135,23 +113,34 @@ class _HomeScreenState extends State<HomeScreen>
           tabs: const [
             Tab(text: 'RECENTS'),
             Tab(text: 'LIBRARY'),
-            Tab(text: 'BROWSE'),
+            Tab(text: 'FOLDERS'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tab,
         children: [
-          _RecentsTab(
-            recents: _recents,
-            loading: _loadingRecents,
-            onOpen: _openVideo,
-            onRemove: _removeRecent,
-            onClearAll: _clearAllRecents,
-            onPickFile: _pickSingleVideo,
+          recentsAsync.when(
+            data: (recents) => _RecentsTab(
+              recents: recents,
+              onOpen: _openVideo,
+              onRemove: (path) =>
+                  ref.read(recentsProvider.notifier).remove(path),
+              onClearAll: _clearAllRecents,
+              onPickFile: _pickSingleVideo,
+            ),
+            loading: () => const Center(
+                child: CircularProgressIndicator(color: Color(0xFFE8FF00))),
+            error: (e, _) => Center(child: Text('Error: $e')),
           ),
-          LibraryScreen(onOpenVideo: _openVideo),
-          FolderBrowserScreen(onOpenVideo: _openVideo),
+          LibraryScreen(
+              onOpenVideo: (v) => _openVideo(VideoEntity(
+                    path: v.path,
+                    name: v.name,
+                    sizeBytes: v.size,
+                    lastModified: v.modified,
+                  ))),
+          const FolderBrowserScreen(),
         ],
       ),
     );
@@ -161,16 +150,14 @@ class _HomeScreenState extends State<HomeScreen>
 // ── RECENTS TAB ──
 
 class _RecentsTab extends StatelessWidget {
-  final List<VideoFile> recents;
-  final bool loading;
-  final void Function(VideoFile) onOpen;
+  final List<VideoEntity> recents;
+  final void Function(VideoEntity) onOpen;
   final void Function(String) onRemove;
   final VoidCallback onClearAll;
   final VoidCallback onPickFile;
 
   const _RecentsTab({
     required this.recents,
-    required this.loading,
     required this.onOpen,
     required this.onRemove,
     required this.onClearAll,
@@ -179,11 +166,6 @@ class _RecentsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return const Center(
-          child: CircularProgressIndicator(color: Color(0xFFE8FF00)));
-    }
-
     if (recents.isEmpty) {
       return _EmptyState(
         icon: Icons.history,
@@ -250,7 +232,7 @@ class _RecentsTab extends StatelessWidget {
 }
 
 class _RecentTile extends StatelessWidget {
-  final VideoFile vf;
+  final VideoEntity vf;
   final VoidCallback onTap;
   const _RecentTile({required this.vf, required this.onTap});
 
@@ -297,7 +279,7 @@ class _RecentTile extends StatelessWidget {
                   const SizedBox(height: 4),
                   Row(children: [
                     Text(
-                      vf.extension.replaceFirst('.', '').toUpperCase(),
+                      vf.extensionLabel,
                       style: const TextStyle(
                         fontSize: 10,
                         color: Color(0xFFE8FF00),
@@ -312,7 +294,7 @@ class _RecentTile extends StatelessWidget {
                             color: Color(0xFF555555),
                             fontFamily: 'monospace')),
                     const Spacer(),
-                    Text(_timeAgo(vf.modified),
+                    Text(_timeAgo(vf.lastModified),
                         style: const TextStyle(
                             fontSize: 10,
                             color: Color(0xFF444444),

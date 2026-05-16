@@ -15,7 +15,9 @@ dependencies:
   riverpod_annotation: ^2.3.5
 
   # Video
-  video_player: ^2.8.3
+  media_kit: ^1.1.10
+  media_kit_video: ^1.2.4
+  media_kit_libs_video: ^1.0.4
 
   # File picking
   file_picker: ^8.0.3

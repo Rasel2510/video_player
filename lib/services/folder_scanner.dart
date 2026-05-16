@@ -1,5 +1,6 @@
 import 'dart:io';
 import '../models/video_file.dart';
+import '../models/video_folder.dart';
 
 class FolderScanner {
   /// Returns all video files directly inside [dirPath] (non-recursive).
@@ -55,6 +56,59 @@ class FolderScanner {
     } catch (_) {}
   }
 
+  /// Scans [rootPath] recursively and groups videos by their parent folder.
+  /// Returns only folders that contain at least one video file.
+  static Future<List<VideoFolder>> scanFolders(
+    String rootPath, {
+    void Function(int found)? onProgress,
+  }) async {
+    final dir = Directory(rootPath);
+    if (!dir.existsSync()) return [];
+
+    final Map<String, List<VideoFile>> folderMap = {};
+    await _recurseForFolders(dir, folderMap, onProgress);
+
+    final folders = folderMap.entries.map((e) {
+      final videos = e.value
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      return VideoFolder(path: e.key, videos: videos);
+    }).toList();
+
+    folders.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return folders;
+  }
+
+  static Future<void> _recurseForFolders(
+    Directory dir,
+    Map<String, List<VideoFile>> out,
+    void Function(int)? onProgress,
+  ) async {
+    try {
+      final List<VideoFile> videosInThisDir = [];
+      final List<Directory> subDirs = [];
+
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is File && VideoFile.isVideoFile(entity.path)) {
+          final vf = VideoFile.fromFile(entity);
+          if (vf != null) videosInThisDir.add(vf);
+        } else if (entity is Directory) {
+          final name = entity.path.split(Platform.pathSeparator).last;
+          if (!name.startsWith('.')) subDirs.add(entity);
+        }
+      }
+
+      if (videosInThisDir.isNotEmpty) {
+        out[dir.path] = videosInThisDir;
+        onProgress?.call(out.values.fold(0, (s, v) => s + v.length));
+      }
+
+      for (final sub in subDirs) {
+        await _recurseForFolders(sub, out, onProgress);
+      }
+    } catch (_) {}
+  }
+
   /// Lists subdirectories and video files in [dirPath] for the folder browser.
   static FolderContents listDirectory(String dirPath) {
     final dir = Directory(dirPath);
@@ -68,7 +122,6 @@ class FolderScanner {
     try {
       for (final entity in dir.listSync(followLinks: false)) {
         if (entity is Directory) {
-          // Skip hidden dirs
           final name = entity.path.split(Platform.pathSeparator).last;
           if (!name.startsWith('.')) dirs.add(entity);
         } else if (entity is File && VideoFile.isVideoFile(entity.path)) {

@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_player/video_player.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
@@ -34,6 +34,10 @@ class PlayerState {
   final double volume;
   final double playbackSpeed;
   final FitMode fitMode;
+  
+  // Multi-audio support
+  final List<AudioTrack> audioTracks;
+  final AudioTrack? selectedAudioTrack;
 
   const PlayerState({
     this.isInitialized = false,
@@ -44,9 +48,11 @@ class PlayerState {
     this.seekValue = 0,
     this.position = Duration.zero,
     this.duration = Duration.zero,
-    this.volume = 1.0,
+    this.volume = 100.0, // media_kit volume is 0-100
     this.playbackSpeed = 1.0,
     this.fitMode = FitMode.contain,
+    this.audioTracks = const [],
+    this.selectedAudioTrack,
   });
 
   double get progress => duration.inMilliseconds > 0
@@ -67,6 +73,8 @@ class PlayerState {
     double? volume,
     double? playbackSpeed,
     FitMode? fitMode,
+    List<AudioTrack>? audioTracks,
+    AudioTrack? selectedAudioTrack,
   }) =>
       PlayerState(
         isInitialized: isInitialized ?? this.isInitialized,
@@ -80,45 +88,62 @@ class PlayerState {
         volume: volume ?? this.volume,
         playbackSpeed: playbackSpeed ?? this.playbackSpeed,
         fitMode: fitMode ?? this.fitMode,
+        audioTracks: audioTracks ?? this.audioTracks,
+        selectedAudioTrack: selectedAudioTrack ?? this.selectedAudioTrack,
       );
 }
 
 // ── Notifier ──────────────────────────────────────────────────────────────────
 
 class PlayerNotifier extends Notifier<PlayerState> {
-  VideoPlayerController? _controller;
+  Player? _player;
+  VideoController? _videoController;
   Timer? _hideTimer;
+  final List<StreamSubscription> _subs = [];
 
   @override
   PlayerState build() => const PlayerState();
 
-  VideoPlayerController? get controller => _controller;
+  Player? get player => _player;
+  VideoController? get videoController => _videoController;
 
   Future<void> init(String filePath) async {
-    _controller?.dispose();
-    _controller = VideoPlayerController.file(File(filePath));
-    await _controller!.initialize();
-    _controller!.addListener(_onControllerUpdate);
-    await _controller!.setVolume(state.volume);
-    await _controller!.setPlaybackSpeed(state.playbackSpeed);
-    await _controller!.play();
+    _disposeInternal();
+    
+    _player = Player();
+    _videoController = VideoController(_player!);
+
+    // Subscriptions
+    _subs.add(_player!.stream.playing.listen((v) => state = state.copyWith(isPlaying: v)));
+    _subs.add(_player!.stream.position.listen((v) => state = state.copyWith(position: v)));
+    _subs.add(_player!.stream.duration.listen((v) => state = state.copyWith(duration: v)));
+    _subs.add(_player!.stream.volume.listen((v) => state = state.copyWith(volume: v)));
+    _subs.add(_player!.stream.rate.listen((v) => state = state.copyWith(playbackSpeed: v)));
+    _subs.add(_player!.stream.tracks.listen((v) {
+      state = state.copyWith(
+        audioTracks: v.audio,
+        selectedAudioTrack: _player!.state.track.audio,
+      );
+    }));
+
+    await _player!.setVolume(state.volume);
+    await _player!.setRate(state.playbackSpeed);
+    
+    await _player!.open(Media(filePath));
     await WakelockPlus.enable();
-    state = state.copyWith(
-      isInitialized: true,
-      isPlaying: true,
-      duration: _controller!.value.duration,
-    );
+    
+    state = state.copyWith(isInitialized: true);
     _startHideTimer();
   }
 
-  void _onControllerUpdate() {
-    if (_controller == null) return;
-    final v = _controller!.value;
-    state = state.copyWith(
-      isPlaying: v.isPlaying,
-      position: v.position,
-      duration: v.duration,
-    );
+  void _disposeInternal() {
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _subs.clear();
+    _player?.dispose();
+    _player = null;
+    _videoController = null;
   }
 
   void _startHideTimer() {
@@ -141,18 +166,17 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void togglePlay() {
-    if (_controller == null) return;
-    state.isPlaying ? _controller!.pause() : _controller!.play();
+    _player?.playOrPause();
     showControls();
   }
 
   void seekRelative(int seconds) {
-    if (_controller == null) return;
+    if (_player == null) return;
     final newPos = state.position + Duration(seconds: seconds);
     final target = newPos < Duration.zero
         ? Duration.zero
         : (newPos > state.duration ? state.duration : newPos);
-    _controller!.seekTo(target);
+    _player!.seek(target);
     showControls();
   }
 
@@ -165,23 +189,29 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void endSeek(double value) {
-    if (_controller == null) return;
+    if (_player == null) return;
     final target = Duration(
       milliseconds: (value * state.duration.inMilliseconds).round(),
     );
-    _controller!.seekTo(target);
+    _player!.seek(target);
     state = state.copyWith(isSeeking: false);
     showControls();
   }
 
   void setVolume(double volume) {
-    _controller?.setVolume(volume);
-    state = state.copyWith(volume: volume);
+    _player?.setVolume(volume);
+    // state is updated via subscription
   }
 
   void setSpeed(double speed) {
-    _controller?.setPlaybackSpeed(speed);
-    state = state.copyWith(playbackSpeed: speed);
+    _player?.setRate(speed);
+    // state is updated via subscription
+    showControls();
+  }
+
+  void setAudioTrack(AudioTrack track) {
+    _player?.setAudioTrack(track);
+    state = state.copyWith(selectedAudioTrack: track);
     showControls();
   }
 
@@ -212,9 +242,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void dispose() {
     _hideTimer?.cancel();
-    _controller?.removeListener(_onControllerUpdate);
-    _controller?.dispose();
-    _controller = null;
+    _disposeInternal();
     WakelockPlus.disable();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,

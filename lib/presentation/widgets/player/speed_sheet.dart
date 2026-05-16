@@ -21,7 +21,7 @@ class SpeedSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('PLAYBACK SPEED', style: AppTextStyles.label),
+          const Text('PLAYBACK SPEED', style: AppTextStyles.label),
           const SizedBox(height: 16),
           Wrap(
             spacing: 10,

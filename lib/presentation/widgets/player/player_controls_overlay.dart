@@ -11,6 +11,7 @@ class PlayerControlsOverlay extends StatelessWidget {
   final VoidCallback onCycleFitMode;
   final VoidCallback onShowSpeed;
   final VoidCallback onShowVolume;
+  final VoidCallback onShowAudio;
   final VoidCallback onSeekBack;
   final VoidCallback onSeekForward;
   final VoidCallback onToggleFullscreen;
@@ -27,6 +28,7 @@ class PlayerControlsOverlay extends StatelessWidget {
     required this.onCycleFitMode,
     required this.onShowSpeed,
     required this.onShowVolume,
+    required this.onShowAudio,
     required this.onSeekBack,
     required this.onSeekForward,
     required this.onToggleFullscreen,
@@ -59,10 +61,12 @@ class PlayerControlsOverlay extends StatelessWidget {
               fitMode: playerState.fitMode,
               speed: playerState.playbackSpeed,
               volume: playerState.volume,
+              hasMultipleAudio: playerState.audioTracks.length > 1,
               onBack: onBack,
               onCycleFitMode: onCycleFitMode,
               onShowSpeed: onShowSpeed,
               onShowVolume: onShowVolume,
+              onShowAudio: onShowAudio,
             ),
             const Spacer(),
             _CenterPlayButton(
@@ -96,20 +100,24 @@ class _TopBar extends StatelessWidget {
   final FitMode fitMode;
   final double speed;
   final double volume;
+  final bool hasMultipleAudio;
   final VoidCallback onBack;
   final VoidCallback onCycleFitMode;
   final VoidCallback onShowSpeed;
   final VoidCallback onShowVolume;
+  final VoidCallback onShowAudio;
 
   const _TopBar({
     required this.fileName,
     required this.fitMode,
     required this.speed,
     required this.volume,
+    required this.hasMultipleAudio,
     required this.onBack,
     required this.onCycleFitMode,
     required this.onShowSpeed,
     required this.onShowVolume,
+    required this.onShowAudio,
   });
 
   @override
@@ -133,6 +141,15 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ),
+          if (hasMultipleAudio) ...[
+            IconButton(
+              icon: const Icon(Icons.audiotrack_outlined,
+                  size: 20, color: AppColors.accent),
+              onPressed: onShowAudio,
+              tooltip: 'Audio Tracks',
+            ),
+            const SizedBox(width: 4),
+          ],
           PlayerChip(label: fitMode.label, onTap: onCycleFitMode),
           const SizedBox(width: 8),
           PlayerChip(
@@ -144,7 +161,7 @@ class _TopBar extends StatelessWidget {
             icon: Icon(
               volume == 0
                   ? Icons.volume_off
-                  : volume < 0.5
+                  : volume < 50
                       ? Icons.volume_down
                       : Icons.volume_up,
               size: 22,

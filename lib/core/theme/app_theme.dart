@@ -97,21 +97,21 @@ final class AppTheme {
         ),
         dividerColor: AppColors.divider,
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
-        inputDecorationTheme: InputDecorationTheme(
+        inputDecorationTheme: const InputDecorationTheme(
           filled: true,
           fillColor: AppColors.panel,
-          hintStyle: const TextStyle(color: AppColors.textDim, fontSize: 13),
-          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          hintStyle: TextStyle(color: AppColors.textDim, fontSize: 13),
+          contentPadding: EdgeInsets.symmetric(vertical: 10),
           isDense: true,
-          border: const OutlineInputBorder(
+          border: OutlineInputBorder(
             borderRadius: BorderRadius.zero,
             borderSide: BorderSide(color: AppColors.border),
           ),
-          enabledBorder: const OutlineInputBorder(
+          enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.zero,
             borderSide: BorderSide(color: AppColors.border),
           ),
-          focusedBorder: const OutlineInputBorder(
+          focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.zero,
             borderSide: BorderSide(color: AppColors.accent, width: 1),
           ),
