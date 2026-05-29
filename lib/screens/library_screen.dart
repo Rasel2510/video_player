@@ -1,112 +1,91 @@
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/video_file.dart';
-import '../services/folder_scanner.dart';
-import '../services/recent_files_service.dart';
-import '../widgets/video_tile.dart';
+import '../models/video_folder.dart';
+import '../presentation/providers/folders_provider.dart';
+import 'folder_videos_screen.dart';
 
-
-class LibraryScreen extends StatefulWidget {
+class LibraryScreen extends ConsumerStatefulWidget {
   final void Function(VideoFile) onOpenVideo;
   const LibraryScreen({super.key, required this.onOpenVideo});
 
   @override
-  State<LibraryScreen> createState() => _LibraryScreenState();
+  ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends State<LibraryScreen>
+class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with AutomaticKeepAliveClientMixin {
-  String? _scanPath;
-  List<VideoFile> _videos = [];
-  bool _scanning = false;
-  int _scanProgress = 0;
-  String _searchQuery = '';
-  final _searchCtrl = TextEditingController();
+  bool _permissionGranted = false;
+  bool _checkingPermission = true;
 
   @override
   bool get wantKeepAlive => true;
 
   @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _checkPermissionsAndScan();
   }
 
-  Future<void> _pickFolder() async {
-    final path = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Choose folder to scan',
-    );
-    if (path == null || !mounted) return;
+  Future<void> _checkPermissionsAndScan() async {
+    setState(() => _checkingPermission = true);
 
-    setState(() {
-      _scanPath = path;
-      _scanning = true;
-      _scanProgress = 0;
-      _videos = [];
-    });
+    // Request permissions. On Android 11+ we often need manageExternalStorage to see all folders.
+    final manageStatus = await Permission.manageExternalStorage.request();
+    final storageStatus = await Permission.storage.request();
+    final mediaVideoStatus = await Permission.videos.request();
 
-    final videos = await FolderScanner.scanRecursive(path, onProgress: (n) {
-      if (mounted) setState(() => _scanProgress = n);
-    });
-
-    if (mounted) {
-      setState(() {
-        _videos = videos;
-        _scanning = false;
-      });
+    if (manageStatus.isGranted || storageStatus.isGranted || mediaVideoStatus.isGranted) {
+      if (mounted) setState(() { _permissionGranted = true; _checkingPermission = false; });
+      // Start scanning the standard Android external storage root
+      ref.read(foldersProvider.notifier).setRoot('/storage/emulated/0');
+    } else {
+      if (mounted) setState(() { _permissionGranted = false; _checkingPermission = false; });
     }
   }
 
-  List<VideoFile> get _filtered {
-    if (_searchQuery.isEmpty) return _videos;
-    return _videos
-        .where((v) =>
-            v.name.toLowerCase().contains(_searchQuery.toLowerCase()))
-        .toList();
-  }
-
-  String _folderName(String path) {
-    final parts = path.split(RegExp(r'[/\\]'));
-    return parts.lastWhere((p) => p.isNotEmpty, orElse: () => path);
-  }
-
-  void _openVideo(VideoFile vf) {
-    RecentFilesService.addRecent(vf);
-    widget.onOpenVideo(vf);
+  void _openFolder(VideoFolder folder) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FolderVideosScreen(folder: folder),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
 
-    if (_scanPath == null) {
+    if (_checkingPermission) {
+      return const Center(child: CircularProgressIndicator(color: Color(0xFFE8FF00)));
+    }
+
+    if (!_permissionGranted) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.video_library_outlined,
-                size: 48, color: Color(0xFF2A2A2A)),
+            const Icon(Icons.security, size: 48, color: Color(0xFF2A2A2A)),
             const SizedBox(height: 16),
-            const Text('Scan a folder for videos',
+            const Text('Storage Permission Required',
                 style: TextStyle(fontSize: 14, color: Color(0xFF555555))),
             const SizedBox(height: 6),
-            const Text('All video files inside will be listed',
+            const Text('We need access to scan your device for videos',
                 style: TextStyle(fontSize: 12, color: Color(0xFF333333))),
             const SizedBox(height: 24),
             GestureDetector(
-              onTap: _pickFolder,
+              onTap: _checkPermissionsAndScan,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
                   border: Border.all(color: const Color(0xFFE8FF00)),
                 ),
-                child: const Text('CHOOSE FOLDER',
+                child: const Text('GRANT PERMISSION',
                     style: TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFFE8FF00),
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 11, color: Color(0xFFE8FF00),
+                      letterSpacing: 2, fontWeight: FontWeight.bold,
                     )),
               ),
             ),
@@ -115,7 +94,9 @@ class _LibraryScreenState extends State<LibraryScreen>
       );
     }
 
-    if (_scanning) {
+    final foldersState = ref.watch(foldersProvider);
+
+    if (foldersState.isScanning) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -123,7 +104,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             const CircularProgressIndicator(color: Color(0xFFE8FF00)),
             const SizedBox(height: 20),
             const Text(
-              'SCANNING...',
+              'SCANNING DEVICE...',
               style: TextStyle(
                 fontSize: 11, color: Color(0xFFE8FF00),
                 letterSpacing: 2, fontFamily: 'monospace',
@@ -131,7 +112,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              '$_scanProgress videos found',
+              '${foldersState.scanProgress} videos found so far',
               style: const TextStyle(fontSize: 12, color: Color(0xFF555555)),
             ),
           ],
@@ -139,38 +120,48 @@ class _LibraryScreenState extends State<LibraryScreen>
       );
     }
 
-    final filtered = _filtered;
+    final folders = foldersState.folders;
+
+    if (folders.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.folder_off_outlined, size: 48, color: Color(0xFF2A2A2A)),
+            const SizedBox(height: 16),
+            const Text('No Video Folders Found',
+                style: TextStyle(fontSize: 14, color: Color(0xFF555555))),
+            const SizedBox(height: 24),
+            TextButton(
+              onPressed: () => ref.read(foldersProvider.notifier).setRoot('/storage/emulated/0'),
+              child: const Text('RESCAN',
+                  style: TextStyle(
+                    fontSize: 11, color: Color(0xFFE8FF00),
+                    letterSpacing: 2, fontWeight: FontWeight.bold,
+                  )),
+            )
+          ],
+        ),
+      );
+    }
 
     return Column(
       children: [
-        // Folder info + change button
         Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           decoration: const BoxDecoration(
             border: Border(bottom: BorderSide(color: Color(0xFF1E1E1E))),
           ),
           child: Row(
             children: [
-              const Icon(Icons.folder_outlined,
-                  size: 16, color: Color(0xFFE8FF00)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _folderName(_scanPath!),
+              Text('${folders.length} FOLDER${folders.length == 1 ? '' : 'S'}',
                   style: const TextStyle(
-                    fontSize: 12, color: Color(0xFFE0E0E0), letterSpacing: 0.3,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text('${_videos.length} videos',
-                  style: const TextStyle(
-                    fontSize: 11, color: Color(0xFF555555), fontFamily: 'monospace',
+                    fontSize: 11, color: Color(0xFF555555), fontFamily: 'monospace', letterSpacing: 2,
                   )),
+              const Spacer(),
               TextButton(
-                onPressed: _pickFolder,
-                child: const Text('CHANGE',
+                onPressed: () => ref.read(foldersProvider.notifier).setRoot('/storage/emulated/0'),
+                child: const Text('RESCAN',
                     style: TextStyle(
                       fontSize: 10, color: Color(0xFF555555), letterSpacing: 1,
                     )),
@@ -178,78 +169,48 @@ class _LibraryScreenState extends State<LibraryScreen>
             ],
           ),
         ),
-
-        // Search bar
-        if (_videos.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-            child: TextField(
-              controller: _searchCtrl,
-              style: const TextStyle(fontSize: 13, color: Color(0xFFE0E0E0)),
-              decoration: InputDecoration(
-                hintText: 'Search videos...',
-                hintStyle: const TextStyle(color: Color(0xFF444444), fontSize: 13),
-                prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF555555)),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.close, size: 16, color: Color(0xFF555555)),
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() => _searchQuery = '');
-                        },
-                      )
-                    : null,
-                filled: true,
-                fillColor: const Color(0xFF161616),
-                border: const OutlineInputBorder(
-                  borderRadius: BorderRadius.zero,
-                  borderSide: BorderSide(color: Color(0xFF2A2A2A)),
-                ),
-                enabledBorder: const OutlineInputBorder(
-                  borderRadius: BorderRadius.zero,
-                  borderSide: BorderSide(color: Color(0xFF2A2A2A)),
-                ),
-                focusedBorder: const OutlineInputBorder(
-                  borderRadius: BorderRadius.zero,
-                  borderSide: BorderSide(color: Color(0xFFE8FF00), width: 1),
-                ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                isDense: true,
-              ),
-              onChanged: (v) => setState(() => _searchQuery = v),
-            ),
-          ),
-
-        // Results count
-        if (_searchQuery.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-            child: Row(children: [
-              Text('${filtered.length} result${filtered.length == 1 ? '' : 's'}',
-                  style: const TextStyle(
-                      fontSize: 11, color: Color(0xFF555555), fontFamily: 'monospace')),
-            ]),
-          ),
-
-        // Video list
         Expanded(
-          child: _videos.isEmpty
-              ? const Center(
-                  child: Text('No videos found in this folder',
-                      style: TextStyle(fontSize: 13, color: Color(0xFF555555))),
-                )
-              : filtered.isEmpty
-                  ? const Center(
-                      child: Text('No results',
-                          style: TextStyle(fontSize: 13, color: Color(0xFF555555))),
-                    )
-                  : ListView.builder(
-                      itemCount: filtered.length,
-                      itemBuilder: (_, i) => VideoTile(
-                        video: filtered[i],
-                        onTap: () => _openVideo(filtered[i]),
+          child: ListView.builder(
+            itemCount: folders.length,
+            itemBuilder: (_, i) {
+              final folder = folders[i];
+              return InkWell(
+                onTap: () => _openFolder(folder),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Color(0xFF1A1A1A))),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.folder, size: 40, color: Color(0xFF444400)),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              folder.name,
+                              style: const TextStyle(
+                                  fontSize: 14, color: Colors.white, fontWeight: FontWeight.w500),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${folder.videoCount} video${folder.videoCount == 1 ? '' : 's'}',
+                              style: const TextStyle(fontSize: 12, color: Color(0xFF777777)),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                      const Icon(Icons.chevron_right, size: 20, color: Color(0xFF333333)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
         ),
       ],
     );

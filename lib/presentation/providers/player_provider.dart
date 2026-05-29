@@ -200,12 +200,12 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void setVolume(double volume) {
     _player?.setVolume(volume);
-    // state is updated via subscription
+    state = state.copyWith(volume: volume);
   }
 
   void setSpeed(double speed) {
     _player?.setRate(speed);
-    // state is updated via subscription
+    state = state.copyWith(playbackSpeed: speed);
     showControls();
   }
 

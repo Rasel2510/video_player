@@ -61,7 +61,7 @@ class PlayerControlsOverlay extends StatelessWidget {
               fitMode: playerState.fitMode,
               speed: playerState.playbackSpeed,
               volume: playerState.volume,
-              hasMultipleAudio: playerState.audioTracks.length > 1,
+              hasMultipleAudio: playerState.audioTracks.where((t) => t.id != 'no' && t.id != 'auto').length > 1,
               onBack: onBack,
               onCycleFitMode: onCycleFitMode,
               onShowSpeed: onShowSpeed,

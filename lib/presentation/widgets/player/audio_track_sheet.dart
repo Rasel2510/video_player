@@ -90,6 +90,8 @@ class AudioTrackSheet extends StatelessWidget {
   }
 
   String _getTrackLabel(AudioTrack track, int index) {
+    if (track.id == 'no') return 'Disabled';
+    if (track.id == 'auto') return 'Auto';
     final lang = track.language?.toUpperCase();
     final title = track.title;
     if (lang != null && title != null) return '$lang - $title';
