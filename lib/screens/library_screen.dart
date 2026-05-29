@@ -1,20 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import '../models/video_file.dart';
-import '../domain/entities/video_entity.dart';
-import '../presentation/providers/library_provider.dart';
+import '../services/folder_scanner.dart';
+import '../services/recent_files_service.dart';
 import '../widgets/video_tile.dart';
 
-class LibraryScreen extends ConsumerStatefulWidget {
+
+class LibraryScreen extends StatefulWidget {
   final void Function(VideoFile) onOpenVideo;
   const LibraryScreen({super.key, required this.onOpenVideo});
 
   @override
-  ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
+  State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends ConsumerState<LibraryScreen>
+class _LibraryScreenState extends State<LibraryScreen>
     with AutomaticKeepAliveClientMixin {
+  String? _scanPath;
+  List<VideoFile> _videos = [];
+  bool _scanning = false;
+  int _scanProgress = 0;
+  String _searchQuery = '';
   final _searchCtrl = TextEditingController();
 
   @override
@@ -26,28 +32,54 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     super.dispose();
   }
 
-  void _openVideo(VideoEntity v) {
-    widget.onOpenVideo(VideoFile(
-      path: v.path,
-      name: v.name,
-      size: v.sizeBytes,
-      modified: v.lastModified,
-    ));
+  Future<void> _pickFolder() async {
+    final path = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Choose folder to scan',
+    );
+    if (path == null || !mounted) return;
+
+    setState(() {
+      _scanPath = path;
+      _scanning = true;
+      _scanProgress = 0;
+      _videos = [];
+    });
+
+    final videos = await FolderScanner.scanRecursive(path, onProgress: (n) {
+      if (mounted) setState(() => _scanProgress = n);
+    });
+
+    if (mounted) {
+      setState(() {
+        _videos = videos;
+        _scanning = false;
+      });
+    }
   }
 
-  String _folderName(String? path) {
-    if (path == null) return '';
+  List<VideoFile> get _filtered {
+    if (_searchQuery.isEmpty) return _videos;
+    return _videos
+        .where((v) =>
+            v.name.toLowerCase().contains(_searchQuery.toLowerCase()))
+        .toList();
+  }
+
+  String _folderName(String path) {
     final parts = path.split(RegExp(r'[/\\]'));
     return parts.lastWhere((p) => p.isNotEmpty, orElse: () => path);
+  }
+
+  void _openVideo(VideoFile vf) {
+    RecentFilesService.addRecent(vf);
+    widget.onOpenVideo(vf);
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final state = ref.watch(libraryProvider);
-    final notifier = ref.read(libraryProvider.notifier);
 
-    if (state.scanPath == null) {
+    if (_scanPath == null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -62,10 +94,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                 style: TextStyle(fontSize: 12, color: Color(0xFF333333))),
             const SizedBox(height: 24),
             GestureDetector(
-              onTap: notifier.pickAndScan,
+              onTap: _pickFolder,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
                   border: Border.all(color: const Color(0xFFE8FF00)),
                 ),
@@ -83,7 +115,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       );
     }
 
-    if (state.isScanning) {
+    if (_scanning) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -93,15 +125,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             const Text(
               'SCANNING...',
               style: TextStyle(
-                fontSize: 11,
-                color: Color(0xFFE8FF00),
-                letterSpacing: 2,
-                fontFamily: 'monospace',
+                fontSize: 11, color: Color(0xFFE8FF00),
+                letterSpacing: 2, fontFamily: 'monospace',
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              '${state.scanProgress} videos found',
+              '$_scanProgress videos found',
               style: const TextStyle(fontSize: 12, color: Color(0xFF555555)),
             ),
           ],
@@ -109,7 +139,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       );
     }
 
-    final filtered = state.filtered;
+    final filtered = _filtered;
 
     return Column(
       children: [
@@ -126,29 +156,23 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  _folderName(state.scanPath),
+                  _folderName(_scanPath!),
                   style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFE0E0E0),
-                    letterSpacing: 0.3,
+                    fontSize: 12, color: Color(0xFFE0E0E0), letterSpacing: 0.3,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               const SizedBox(width: 8),
-              Text('${state.videos.length} videos',
+              Text('${_videos.length} videos',
                   style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF555555),
-                    fontFamily: 'monospace',
+                    fontSize: 11, color: Color(0xFF555555), fontFamily: 'monospace',
                   )),
               TextButton(
-                onPressed: notifier.pickAndScan,
+                onPressed: _pickFolder,
                 child: const Text('CHANGE',
                     style: TextStyle(
-                      fontSize: 10,
-                      color: Color(0xFF555555),
-                      letterSpacing: 1,
+                      fontSize: 10, color: Color(0xFF555555), letterSpacing: 1,
                     )),
               ),
             ],
@@ -156,7 +180,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         ),
 
         // Search bar
-        if (state.videos.isNotEmpty)
+        if (_videos.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
             child: TextField(
@@ -164,17 +188,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               style: const TextStyle(fontSize: 13, color: Color(0xFFE0E0E0)),
               decoration: InputDecoration(
                 hintText: 'Search videos...',
-                hintStyle:
-                    const TextStyle(color: Color(0xFF444444), fontSize: 13),
-                prefixIcon: const Icon(Icons.search,
-                    size: 18, color: Color(0xFF555555)),
-                suffixIcon: state.searchQuery.isNotEmpty
+                hintStyle: const TextStyle(color: Color(0xFF444444), fontSize: 13),
+                prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF555555)),
+                suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
-                        icon: const Icon(Icons.close,
-                            size: 16, color: Color(0xFF555555)),
+                        icon: const Icon(Icons.close, size: 16, color: Color(0xFF555555)),
                         onPressed: () {
                           _searchCtrl.clear();
-                          notifier.clearSearch();
+                          setState(() => _searchQuery = '');
                         },
                       )
                     : null,
@@ -190,33 +211,29 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                 ),
                 focusedBorder: const OutlineInputBorder(
                   borderRadius: BorderRadius.zero,
-                  borderSide:
-                      BorderSide(color: Color(0xFFE8FF00), width: 1),
+                  borderSide: BorderSide(color: Color(0xFFE8FF00), width: 1),
                 ),
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 isDense: true,
               ),
-              onChanged: notifier.updateSearch,
+              onChanged: (v) => setState(() => _searchQuery = v),
             ),
           ),
 
         // Results count
-        if (state.searchQuery.isNotEmpty)
+        if (_searchQuery.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
             child: Row(children: [
-              Text(
-                  '${filtered.length} result${filtered.length == 1 ? '' : 's'}',
+              Text('${filtered.length} result${filtered.length == 1 ? '' : 's'}',
                   style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF555555),
-                      fontFamily: 'monospace')),
+                      fontSize: 11, color: Color(0xFF555555), fontFamily: 'monospace')),
             ]),
           ),
 
         // Video list
         Expanded(
-          child: state.videos.isEmpty
+          child: _videos.isEmpty
               ? const Center(
                   child: Text('No videos found in this folder',
                       style: TextStyle(fontSize: 13, color: Color(0xFF555555))),
@@ -224,23 +241,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               : filtered.isEmpty
                   ? const Center(
                       child: Text('No results',
-                          style: TextStyle(
-                              fontSize: 13, color: Color(0xFF555555))),
+                          style: TextStyle(fontSize: 13, color: Color(0xFF555555))),
                     )
                   : ListView.builder(
                       itemCount: filtered.length,
-                      itemBuilder: (_, i) {
-                        final v = filtered[i];
-                        return VideoTile(
-                          video: VideoFile(
-                            path: v.path,
-                            name: v.name,
-                            size: v.sizeBytes,
-                            modified: v.lastModified,
-                          ),
-                          onTap: () => _openVideo(v),
-                        );
-                      },
+                      itemBuilder: (_, i) => VideoTile(
+                        video: filtered[i],
+                        onTap: () => _openVideo(filtered[i]),
+                      ),
                     ),
         ),
       ],

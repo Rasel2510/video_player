@@ -1,27 +1,30 @@
+
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../domain/entities/video_entity.dart';
-import '../presentation/providers/dependency_providers.dart';
-import '../presentation/providers/recents_provider.dart';
+import 'package:file_picker/file_picker.dart';
+import '../models/video_file.dart';
+import '../services/recent_files_service.dart';
 import 'player_screen.dart';
 import 'folder_browser_screen.dart';
 import 'library_screen.dart';
 
-class HomeScreen extends ConsumerStatefulWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen>
+class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tab;
+  List<VideoFile> _recents = [];
+  bool _loadingRecents = true;
 
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 3, vsync: this);
+    _loadRecents();
   }
 
   @override
@@ -30,21 +33,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.dispose();
   }
 
-  void _openVideo(VideoEntity video) {
+  Future<void> _loadRecents() async {
+    final r = await RecentFilesService.getRecents();
+    if (mounted) setState(() { _recents = r; _loadingRecents = false; });
+  }
+
+  void _openVideo(VideoFile vf) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            PlayerScreen(filePath: video.path, fileName: video.name),
+        builder: (_) => PlayerScreen(filePath: vf.path, fileName: vf.name),
       ),
-    ).then((_) => ref.invalidate(recentsProvider));
+    ).then((_) => _loadRecents());
   }
 
   Future<void> _pickSingleVideo() async {
-    final video = await ref.read(pickVideoUseCaseProvider).call();
-    if (video != null && mounted) {
-      _openVideo(video);
+    final result = await FilePicker.platform.pickFiles(type: FileType.video);
+    if (result != null && result.files.single.path != null && mounted) {
+      final f = result.files.single;
+      final vf = VideoFile(
+        path: f.path!,
+        name: f.name,
+        size: f.size,
+        modified: DateTime.now(),
+      );
+      await RecentFilesService.addRecent(vf);
+      _openVideo(vf);
     }
+  }
+
+  Future<void> _removeRecent(String path) async {
+    await RecentFilesService.removeRecent(path);
+    _loadRecents();
   }
 
   Future<void> _clearAllRecents() async {
@@ -67,25 +87,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ),
     );
     if (ok == true) {
-      await ref.read(recentsProvider.notifier).clearAll();
+      await RecentFilesService.clearAll();
+      _loadRecents();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final recentsAsync = ref.watch(recentsProvider);
-
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
       appBar: AppBar(
         title: Row(
           children: [
             Container(
-              width: 8,
-              height: 8,
+              width: 8, height: 8,
               decoration: const BoxDecoration(
-                color: Color(0xFFE8FF00),
-                shape: BoxShape.circle,
+                color: Color(0xFFE8FF00), shape: BoxShape.circle,
               ),
             ),
             const SizedBox(width: 10),
@@ -113,34 +130,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           tabs: const [
             Tab(text: 'RECENTS'),
             Tab(text: 'LIBRARY'),
-            Tab(text: 'FOLDERS'),
+            Tab(text: 'BROWSE'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tab,
         children: [
-          recentsAsync.when(
-            data: (recents) => _RecentsTab(
-              recents: recents,
-              onOpen: _openVideo,
-              onRemove: (path) =>
-                  ref.read(recentsProvider.notifier).remove(path),
-              onClearAll: _clearAllRecents,
-              onPickFile: _pickSingleVideo,
-            ),
-            loading: () => const Center(
-                child: CircularProgressIndicator(color: Color(0xFFE8FF00))),
-            error: (e, _) => Center(child: Text('Error: $e')),
+          _RecentsTab(
+            recents: _recents,
+            loading: _loadingRecents,
+            onOpen: _openVideo,
+            onRemove: _removeRecent,
+            onClearAll: _clearAllRecents,
+            onPickFile: _pickSingleVideo,
           ),
-          LibraryScreen(
-              onOpenVideo: (v) => _openVideo(VideoEntity(
-                    path: v.path,
-                    name: v.name,
-                    sizeBytes: v.size,
-                    lastModified: v.modified,
-                  ))),
-          const FolderBrowserScreen(),
+          LibraryScreen(onOpenVideo: _openVideo),
+          FolderBrowserScreen(onOpenVideo: _openVideo),
         ],
       ),
     );
@@ -150,14 +156,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 // ── RECENTS TAB ──
 
 class _RecentsTab extends StatelessWidget {
-  final List<VideoEntity> recents;
-  final void Function(VideoEntity) onOpen;
+  final List<VideoFile> recents;
+  final bool loading;
+  final void Function(VideoFile) onOpen;
   final void Function(String) onRemove;
   final VoidCallback onClearAll;
   final VoidCallback onPickFile;
 
   const _RecentsTab({
     required this.recents,
+    required this.loading,
     required this.onOpen,
     required this.onRemove,
     required this.onClearAll,
@@ -166,6 +174,11 @@ class _RecentsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (loading) {
+      return const Center(
+          child: CircularProgressIndicator(color: Color(0xFFE8FF00)));
+    }
+
     if (recents.isEmpty) {
       return _EmptyState(
         icon: Icons.history,
@@ -186,10 +199,8 @@ class _RecentsTab extends StatelessWidget {
               Text(
                 '${recents.length} VIDEO${recents.length == 1 ? '' : 'S'}',
                 style: const TextStyle(
-                  fontSize: 11,
-                  color: Color(0xFF555555),
-                  letterSpacing: 2,
-                  fontFamily: 'monospace',
+                  fontSize: 11, color: Color(0xFF555555),
+                  letterSpacing: 2, fontFamily: 'monospace',
                 ),
               ),
               const Spacer(),
@@ -197,9 +208,7 @@ class _RecentsTab extends StatelessWidget {
                 onPressed: onClearAll,
                 child: const Text('CLEAR ALL',
                     style: TextStyle(
-                      fontSize: 10,
-                      color: Color(0xFF555555),
-                      letterSpacing: 1,
+                      fontSize: 10, color: Color(0xFF555555), letterSpacing: 1,
                     )),
               ),
             ],
@@ -232,7 +241,7 @@ class _RecentsTab extends StatelessWidget {
 }
 
 class _RecentTile extends StatelessWidget {
-  final VideoEntity vf;
+  final VideoFile vf;
   final VoidCallback onTap;
   const _RecentTile({required this.vf, required this.onTap});
 
@@ -257,8 +266,7 @@ class _RecentTile extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 56,
-              height: 40,
+              width: 56, height: 40,
               decoration: BoxDecoration(
                 color: const Color(0xFF1A1A1A),
                 border: Border.all(color: const Color(0xFF2A2A2A)),
@@ -272,33 +280,25 @@ class _RecentTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(vf.name,
-                      style: const TextStyle(
-                          fontSize: 13, color: Color(0xFFE0E0E0)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
+                      style: const TextStyle(fontSize: 13, color: Color(0xFFE0E0E0)),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
                   Row(children: [
                     Text(
-                      vf.extensionLabel,
+                      vf.extension.replaceFirst('.', '').toUpperCase(),
                       style: const TextStyle(
-                        fontSize: 10,
-                        color: Color(0xFFE8FF00),
-                        fontFamily: 'monospace',
-                        letterSpacing: 1,
+                        fontSize: 10, color: Color(0xFFE8FF00),
+                        fontFamily: 'monospace', letterSpacing: 1,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Text(vf.sizeLabel,
                         style: const TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFF555555),
-                            fontFamily: 'monospace')),
+                            fontSize: 10, color: Color(0xFF555555), fontFamily: 'monospace')),
                     const Spacer(),
-                    Text(_timeAgo(vf.lastModified),
+                    Text(_timeAgo(vf.modified),
                         style: const TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFF444444),
-                            fontFamily: 'monospace')),
+                            fontSize: 10, color: Color(0xFF444444), fontFamily: 'monospace')),
                   ]),
                 ],
               ),
@@ -347,17 +347,14 @@ class _EmptyState extends StatelessWidget {
             GestureDetector(
               onTap: onAction,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
                   border: Border.all(color: const Color(0xFFE8FF00)),
                 ),
                 child: Text(actionLabel!,
                     style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFFE8FF00),
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 11, color: Color(0xFFE8FF00),
+                      letterSpacing: 2, fontWeight: FontWeight.bold,
                     )),
               ),
             ),

@@ -1,38 +1,87 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:file_picker/file_picker.dart';
-import '../models/video_folder.dart';
-import '../presentation/providers/folders_provider.dart';
-import 'folder_videos_screen.dart';
 
-class FolderBrowserScreen extends ConsumerWidget {
-  const FolderBrowserScreen({super.key});
+import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
+import '../models/video_file.dart';
+import '../services/folder_scanner.dart';
+import '../services/recent_files_service.dart';
+import '../widgets/video_tile.dart';
+
+class FolderBrowserScreen extends StatefulWidget {
+  final void Function(VideoFile) onOpenVideo;
+  const FolderBrowserScreen({super.key, required this.onOpenVideo});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(foldersProvider);
-    final notifier = ref.read(foldersProvider.notifier);
+  State<FolderBrowserScreen> createState() => _FolderBrowserScreenState();
+}
 
-    Future<void> pickAndScan() async {
-      final path = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: 'Choose folder to scan',
-      );
-      if (path != null) {
-        notifier.setRoot(path);
-      }
+class _FolderBrowserScreenState extends State<FolderBrowserScreen>
+    with AutomaticKeepAliveClientMixin {
+  // Breadcrumb stack: list of directory paths
+  final List<String> _breadcrumbs = [];
+  FolderContents? _contents;
+  bool _loading = false;
+  String? _rootPath;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  // String? get _currentPath =>
+  //     _breadcrumbs.isNotEmpty ? _breadcrumbs.last : null;
+
+  Future<void> _pickRoot() async {
+    final path = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Choose root folder',
+    );
+    if (path == null || !mounted) return;
+    setState(() {
+      _rootPath = path;
+      _breadcrumbs.clear();
+      _breadcrumbs.add(path);
+    });
+    _loadDir(path);
+  }
+
+  Future<void> _loadDir(String path) async {
+    setState(() { _loading = true; _contents = null; });
+    // Run on separate isolate-friendly call (listSync is fast enough)
+    final contents = await Future(() => FolderScanner.listDirectory(path));
+    if (mounted) setState(() { _contents = contents; _loading = false; });
+  }
+
+  void _navigateTo(String dirPath) {
+    _breadcrumbs.add(dirPath);
+    _loadDir(dirPath);
+  }
+
+  void _navigateUp() {
+    if (_breadcrumbs.length > 1) {
+      _breadcrumbs.removeLast();
+      _loadDir(_breadcrumbs.last);
     }
+  }
 
-    void openFolder(VideoFolder folder) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => FolderVideosScreen(folder: folder),
-        ),
-      );
+  void _navigateToBreadcrumb(int index) {
+    while (_breadcrumbs.length > index + 1) {
+      _breadcrumbs.removeLast();
     }
+    _loadDir(_breadcrumbs.last);
+  }
 
-    // ── Empty state: no folder chosen yet ──
-    if (state.rootPath == null) {
+  void _openVideo(VideoFile vf) {
+    RecentFilesService.addRecent(vf);
+    widget.onOpenVideo(vf);
+  }
+
+  String _dirName(String path) {
+    return p.basename(path).isEmpty ? path : p.basename(path);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    if (_rootPath == null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -40,21 +89,21 @@ class FolderBrowserScreen extends ConsumerWidget {
             const Icon(Icons.folder_open_outlined,
                 size: 48, color: Color(0xFF2A2A2A)),
             const SizedBox(height: 16),
-            const Text('Find folders with videos',
+            const Text('Browse your device folders',
                 style: TextStyle(fontSize: 14, color: Color(0xFF555555))),
             const SizedBox(height: 6),
-            const Text('Choose a root folder to scan',
+            const Text('Navigate directories to find videos',
                 style: TextStyle(fontSize: 12, color: Color(0xFF333333))),
             const SizedBox(height: 24),
             GestureDetector(
-              onTap: pickAndScan,
+              onTap: _pickRoot,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
                   border: Border.all(color: const Color(0xFFE8FF00)),
                 ),
-                child: const Text('CHOOSE FOLDER',
+                child: const Text('CHOOSE ROOT FOLDER',
                     style: TextStyle(
                       fontSize: 11,
                       color: Color(0xFFE8FF00),
@@ -68,224 +117,177 @@ class FolderBrowserScreen extends ConsumerWidget {
       );
     }
 
-    // ── Scanning state ──
-    if (state.isScanning) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(color: Color(0xFFE8FF00)),
-            const SizedBox(height: 20),
-            const Text(
-              'SCANNING...',
-              style: TextStyle(
-                fontSize: 11,
-                color: Color(0xFFE8FF00),
-                letterSpacing: 2,
-                fontFamily: 'monospace',
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '${state.scanProgress} videos found',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF555555)),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // ── No folders found ──
-    if (state.folders.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.folder_off_outlined,
-                size: 40, color: Color(0xFF2A2A2A)),
-            const SizedBox(height: 14),
-            const Text('No video folders found',
-                style: TextStyle(fontSize: 13, color: Color(0xFF555555))),
-            const SizedBox(height: 20),
-            GestureDetector(
-              onTap: pickAndScan,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFF444444)),
-                ),
-                child: const Text('CHOOSE DIFFERENT FOLDER',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Color(0xFF888888),
-                      letterSpacing: 1.5,
-                    )),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // ── Folder list ──
     return Column(
       children: [
-        // Header bar
+        // ── BREADCRUMB BAR ──
         Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+          height: 44,
           decoration: const BoxDecoration(
             border: Border(bottom: BorderSide(color: Color(0xFF1E1E1E))),
           ),
           child: Row(
             children: [
-              const Icon(Icons.folder_outlined,
-                  size: 15, color: Color(0xFFE8FF00)),
-              const SizedBox(width: 8),
+              // Up button
+              if (_breadcrumbs.length > 1)
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new,
+                      size: 15, color: Color(0xFF888888)),
+                  onPressed: _navigateUp,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+
+              // Scrollable breadcrumbs
               Expanded(
-                child: Text(
-                  state.rootPath!.split(RegExp(r'[/\\]')).lastWhere(
-                        (seg) => seg.isNotEmpty,
-                        orElse: () => state.rootPath!,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  itemCount: _breadcrumbs.length,
+                  separatorBuilder: (_, __) => const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: Icon(Icons.chevron_right,
+                        size: 14, color: Color(0xFF333333)),
+                  ),
+                  itemBuilder: (_, i) {
+                    final isLast = i == _breadcrumbs.length - 1;
+                    return Center(
+                      child: GestureDetector(
+                        onTap: isLast ? null : () => _navigateToBreadcrumb(i),
+                        child: Text(
+                          _dirName(_breadcrumbs[i]),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isLast
+                                ? const Color(0xFFE8FF00)
+                                : const Color(0xFF555555),
+                            fontFamily: 'monospace',
+                          ),
+                        ),
                       ),
-                  style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFFE0E0E0),
-                      letterSpacing: 0.3),
-                  overflow: TextOverflow.ellipsis,
+                    );
+                  },
                 ),
               ),
-              Text(
-                '${state.folders.length} folder${state.folders.length == 1 ? '' : 's'}',
-                style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF555555),
-                    fontFamily: 'monospace'),
-              ),
-              TextButton(
-                onPressed: pickAndScan,
-                child: const Text('RESCAN',
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: Color(0xFF555555),
-                        letterSpacing: 1)),
+
+              // Change root
+              IconButton(
+                icon: const Icon(Icons.drive_folder_upload_outlined,
+                    size: 18, color: Color(0xFF555555)),
+                tooltip: 'Change root folder',
+                onPressed: _pickRoot,
               ),
             ],
           ),
         ),
 
-        // Folder tiles
+        // ── CONTENT ──
         Expanded(
-          child: ListView.builder(
-            itemCount: state.folders.length,
-            itemBuilder: (_, i) {
-              final folder = state.folders[i];
-              return _FolderTile(
-                folder: folder,
-                onTap: () => openFolder(folder),
-              );
-            },
-          ),
+          child: _loading
+              ? const Center(
+                  child: CircularProgressIndicator(color: Color(0xFFE8FF00)))
+              : _contents == null
+                  ? const SizedBox()
+                  : _buildContents(),
         ),
       ],
     );
   }
+
+  Widget _buildContents() {
+    final dirs = _contents!.dirs;
+    final videos = _contents!.videos;
+    final total = dirs.length + videos.length;
+
+    if (total == 0) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.folder_off_outlined, size: 36, color: Color(0xFF2A2A2A)),
+            SizedBox(height: 12),
+            Text('Empty folder',
+                style: TextStyle(fontSize: 13, color: Color(0xFF555555))),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: dirs.length + videos.length + (dirs.isNotEmpty && videos.isNotEmpty ? 1 : 0),
+      itemBuilder: (_, i) {
+        // Directories first
+        if (i < dirs.length) {
+          final dir = dirs[i];
+          final name = p.basename(dir.path);
+          return _DirTile(
+            name: name,
+            path: dir.path,
+            onTap: () => _navigateTo(dir.path),
+          );
+        }
+
+        // Divider between dirs and videos
+        if (dirs.isNotEmpty && videos.isNotEmpty && i == dirs.length) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+            child: Row(children: [
+              Text(
+                '${videos.length} VIDEO${videos.length == 1 ? '' : 'S'}',
+                style: const TextStyle(
+                  fontSize: 10, color: Color(0xFF555555),
+                  letterSpacing: 2, fontFamily: 'monospace',
+                ),
+              ),
+            ]),
+          );
+        }
+
+        final videoIndex = dirs.isNotEmpty && videos.isNotEmpty
+            ? i - dirs.length - 1
+            : i - dirs.length;
+
+        final vf = videos[videoIndex];
+        return VideoTile(
+          video: vf,
+          onTap: () => _openVideo(vf),
+        );
+      },
+    );
+  }
 }
 
-// ── Folder Tile ──────────────────────────────────────────────────────────────
-
-class _FolderTile extends StatelessWidget {
-  final VideoFolder folder;
+class _DirTile extends StatelessWidget {
+  final String name;
+  final String path;
   final VoidCallback onTap;
 
-  const _FolderTile({required this.folder, required this.onTap});
+  const _DirTile({
+    required this.name,
+    required this.path,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: Color(0xFF1A1A1A))),
         ),
         child: Row(
           children: [
-            // Folder icon badge
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: const Color(0xFF161616),
-                border: Border.all(color: const Color(0xFF2A2A2A)),
-              ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  const Icon(Icons.folder_rounded,
-                      size: 28, color: Color(0xFF444400)),
-                  Positioned(
-                    bottom: 4,
-                    right: 4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 4, vertical: 1),
-                      color: const Color(0xFF0A0A0A),
-                      child: Text(
-                        '${folder.videoCount}',
-                        style: const TextStyle(
-                          fontSize: 9,
-                          color: Color(0xFFE8FF00),
-                          fontFamily: 'monospace',
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            const Icon(Icons.folder_outlined,
+                size: 20, color: Color(0xFF666600)),
             const SizedBox(width: 14),
-            // Info
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    folder.name,
-                    style: const TextStyle(
-                        fontSize: 13, color: Color(0xFFE0E0E0)),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 5),
-                  Row(
-                    children: [
-                      Text(
-                        '${folder.videoCount} video${folder.videoCount == 1 ? '' : 's'}',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Color(0xFFE8FF00),
-                          fontFamily: 'monospace',
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        folder.totalSizeLabel,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Color(0xFF555555),
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+              child: Text(
+                name,
+                style: const TextStyle(fontSize: 13, color: Color(0xFFCCCCCC)),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            const Icon(Icons.chevron_right,
-                size: 18, color: Color(0xFF333333)),
+            const Icon(Icons.chevron_right, size: 18, color: Color(0xFF333333)),
           ],
         ),
       ),
