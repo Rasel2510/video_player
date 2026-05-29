@@ -77,63 +77,81 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final playerState = ref.watch(playerProvider);
     final notifier = ref.read(playerProvider.notifier);
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: playerState.controlsVisible
-            ? notifier.hideControls
-            : notifier.showControls,
-        onDoubleTapDown: (details) {
-          final w = MediaQuery.of(context).size.width;
-          details.globalPosition.dx < w / 2
-              ? notifier.seekRelative(-10)
-              : notifier.seekRelative(10);
+      body: Consumer(
+        builder: (context, ref, child) {
+          final controlsVisible = ref.watch(playerProvider.select((s) => s.controlsVisible));
+          return GestureDetector(
+            onTap: controlsVisible ? notifier.hideControls : notifier.showControls,
+            onDoubleTapDown: (details) {
+              final w = MediaQuery.of(context).size.width;
+              details.globalPosition.dx < w / 2
+                  ? notifier.seekRelative(-10)
+                  : notifier.seekRelative(10);
+            },
+            child: child,
+          );
         },
         child: Stack(
           children: [
             // Video View
-            if (playerState.isInitialized && notifier.videoController != null)
-              Positioned.fill(
-                child: Video(
-                  controller: notifier.videoController!,
-                  fit: _boxFit(playerState.fitMode),
-                  controls: NoVideoControls, // We use our own controls
-                ),
-              )
-            else
-              const Center(
-                  child: CircularProgressIndicator(color: Color(0xFFE8FF00))),
+            Consumer(
+              builder: (context, ref, _) {
+                final isInitialized = ref.watch(playerProvider.select((s) => s.isInitialized));
+                final fitMode = ref.watch(playerProvider.select((s) => s.fitMode));
+                
+                if (isInitialized && notifier.videoController != null) {
+                  return Positioned.fill(
+                    child: Video(
+                      controller: notifier.videoController!,
+                      fit: _boxFit(fitMode),
+                      controls: NoVideoControls, // We use our own controls
+                    ),
+                  );
+                }
+                return const Center(child: CircularProgressIndicator(color: Color(0xFFE8FF00)));
+              },
+            ),
 
             // Controls Overlay
-            if (playerState.isInitialized)
-              AnimatedOpacity(
-                opacity: playerState.controlsVisible ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 200),
-                child: IgnorePointer(
-                  ignoring: !playerState.controlsVisible,
-                  child: PlayerControlsOverlay(
-                    playerState: playerState,
-                    fileName: widget.fileName,
-                    onBack: () => Navigator.pop(context),
-                    onTogglePlay: notifier.togglePlay,
-                    onCycleFitMode: notifier.cycleFitMode,
-                    onShowSpeed: () =>
-                        _showSpeedSheet(context, playerState.playbackSpeed),
-                    onShowVolume: () =>
-                        _showVolumeSheet(context, playerState.volume),
-                    onShowAudio: () => _showAudioTrackSheet(context),
-                    onSeekBack: () => notifier.seekRelative(-10),
-                    onSeekForward: () => notifier.seekRelative(10),
-                    onToggleFullscreen: notifier.toggleFullscreen,
-                    onSeekStart: notifier.beginSeek,
-                    onSeekUpdate: notifier.updateSeek,
-                    onSeekEnd: notifier.endSeek,
+            Consumer(
+              builder: (context, ref, _) {
+                final isInitialized = ref.watch(playerProvider.select((s) => s.isInitialized));
+                if (!isInitialized) return const SizedBox();
+
+                final controlsVisible = ref.watch(playerProvider.select((s) => s.controlsVisible));
+                
+                return AnimatedOpacity(
+                  opacity: controlsVisible ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: IgnorePointer(
+                    ignoring: !controlsVisible,
+                    child: PlayerControlsOverlay(
+                      fileName: widget.fileName,
+                      onBack: () => Navigator.pop(context),
+                      onTogglePlay: notifier.togglePlay,
+                      onCycleFitMode: notifier.cycleFitMode,
+                      onShowSpeed: () {
+                         _showSpeedSheet(context, ref.read(playerProvider).playbackSpeed);
+                      },
+                      onShowVolume: () {
+                         _showVolumeSheet(context, ref.read(playerProvider).volume);
+                      },
+                      onShowAudio: () => _showAudioTrackSheet(context),
+                      onSeekBack: () => notifier.seekRelative(-10),
+                      onSeekForward: () => notifier.seekRelative(10),
+                      onToggleFullscreen: notifier.toggleFullscreen,
+                      onSeekStart: notifier.beginSeek,
+                      onSeekUpdate: notifier.updateSeek,
+                      onSeekEnd: notifier.endSeek,
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
+            ),
           ],
         ),
       ),

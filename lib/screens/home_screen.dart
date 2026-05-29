@@ -216,6 +216,7 @@ class _RecentsTab extends StatelessWidget {
         ),
         Expanded(
           child: ListView.builder(
+            itemExtent: 65, // Fixed height optimization
             itemCount: recents.length,
             itemBuilder: (_, i) {
               final vf = recents[i];

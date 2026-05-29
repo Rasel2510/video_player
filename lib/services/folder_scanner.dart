@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import '../models/video_file.dart';
 import '../models/video_folder.dart';
 
@@ -22,18 +23,40 @@ class FolderScanner {
     return files;
   }
 
-  /// Returns all video files recursively inside [dirPath].
+  /// Returns all video files recursively inside [dirPath], using an isolate.
   static Future<List<VideoFile>> scanRecursive(
     String dirPath, {
     void Function(int found)? onProgress,
   }) async {
-    final dir = Directory(dirPath);
-    if (!dir.existsSync()) return [];
+    final receivePort = ReceivePort();
+    await Isolate.spawn(
+      _isolateScanRecursive,
+      _IsolateScanData(dirPath, receivePort.sendPort),
+    );
+
+    List<VideoFile>? finalResult;
+    await for (final message in receivePort) {
+      if (message is int) {
+        onProgress?.call(message);
+      } else if (message is List<VideoFile>) {
+        finalResult = message;
+        receivePort.close();
+      }
+    }
+    return finalResult ?? [];
+  }
+
+  static Future<void> _isolateScanRecursive(_IsolateScanData data) async {
+    final dir = Directory(data.rootPath);
+    if (!dir.existsSync()) {
+      data.sendPort.send(<VideoFile>[]);
+      return;
+    }
 
     final files = <VideoFile>[];
-    await _recurse(dir, files, onProgress);
+    await _recurse(dir, files, (count) => data.sendPort.send(count));
     files.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    return files;
+    data.sendPort.send(files);
   }
 
   static Future<void> _recurse(
@@ -56,17 +79,38 @@ class FolderScanner {
     } catch (_) {}
   }
 
-  /// Scans [rootPath] recursively and groups videos by their parent folder.
-  /// Returns only folders that contain at least one video file.
+  /// Scans [rootPath] recursively and groups videos by folder, using an isolate.
   static Future<List<VideoFolder>> scanFolders(
     String rootPath, {
     void Function(int found)? onProgress,
   }) async {
-    final dir = Directory(rootPath);
-    if (!dir.existsSync()) return [];
+    final receivePort = ReceivePort();
+    await Isolate.spawn(
+      _isolateScanFolders,
+      _IsolateScanData(rootPath, receivePort.sendPort),
+    );
+
+    List<VideoFolder>? finalResult;
+    await for (final message in receivePort) {
+      if (message is int) {
+        onProgress?.call(message);
+      } else if (message is List<VideoFolder>) {
+        finalResult = message;
+        receivePort.close();
+      }
+    }
+    return finalResult ?? [];
+  }
+
+  static Future<void> _isolateScanFolders(_IsolateScanData data) async {
+    final dir = Directory(data.rootPath);
+    if (!dir.existsSync()) {
+      data.sendPort.send(<VideoFolder>[]);
+      return;
+    }
 
     final Map<String, List<VideoFile>> folderMap = {};
-    await _recurseForFolders(dir, folderMap, onProgress);
+    await _recurseForFolders(dir, folderMap, (count) => data.sendPort.send(count));
 
     final folders = folderMap.entries.map((e) {
       final videos = e.value
@@ -74,9 +118,8 @@ class FolderScanner {
       return VideoFolder(path: e.key, videos: videos);
     }).toList();
 
-    folders.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    return folders;
+    folders.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    data.sendPort.send(folders);
   }
 
   static Future<void> _recurseForFolders(
@@ -136,8 +179,7 @@ class FolderScanner {
       final nb = b.path.split(Platform.pathSeparator).last.toLowerCase();
       return na.compareTo(nb);
     });
-    videos.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    videos.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     return FolderContents(dirs: dirs, videos: videos);
   }
@@ -147,4 +189,10 @@ class FolderContents {
   final List<Directory> dirs;
   final List<VideoFile> videos;
   FolderContents({required this.dirs, required this.videos});
+}
+
+class _IsolateScanData {
+  final String rootPath;
+  final SendPort sendPort;
+  _IsolateScanData(this.rootPath, this.sendPort);
 }

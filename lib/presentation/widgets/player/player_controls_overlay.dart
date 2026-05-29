@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/duration_formatter.dart';
 import '../../providers/player_provider.dart';
 
 class PlayerControlsOverlay extends StatelessWidget {
-  final PlayerState playerState;
   final String fileName;
   final VoidCallback onBack;
   final VoidCallback onTogglePlay;
@@ -21,7 +21,6 @@ class PlayerControlsOverlay extends StatelessWidget {
 
   const PlayerControlsOverlay({
     super.key,
-    required this.playerState,
     required this.fileName,
     required this.onBack,
     required this.onTogglePlay,
@@ -58,10 +57,6 @@ class PlayerControlsOverlay extends StatelessWidget {
           children: [
             _TopBar(
               fileName: fileName,
-              fitMode: playerState.fitMode,
-              speed: playerState.playbackSpeed,
-              volume: playerState.volume,
-              hasMultipleAudio: playerState.audioTracks.where((t) => t.id != 'no' && t.id != 'auto').length > 1,
               onBack: onBack,
               onCycleFitMode: onCycleFitMode,
               onShowSpeed: onShowSpeed,
@@ -70,15 +65,10 @@ class PlayerControlsOverlay extends StatelessWidget {
             ),
             const Spacer(),
             _CenterPlayButton(
-              isPlaying: playerState.isPlaying,
               onTap: onTogglePlay,
             ),
             const Spacer(),
             _BottomBar(
-              position: playerState.position,
-              duration: playerState.duration,
-              progress: playerState.progress,
-              isFullscreen: playerState.isFullscreen,
               onSeekStart: onSeekStart,
               onSeekUpdate: onSeekUpdate,
               onSeekEnd: onSeekEnd,
@@ -95,12 +85,8 @@ class PlayerControlsOverlay extends StatelessWidget {
 
 // ── Top Bar ───────────────────────────────────────────────────────────────────
 
-class _TopBar extends StatelessWidget {
+class _TopBar extends ConsumerWidget {
   final String fileName;
-  final FitMode fitMode;
-  final double speed;
-  final double volume;
-  final bool hasMultipleAudio;
   final VoidCallback onBack;
   final VoidCallback onCycleFitMode;
   final VoidCallback onShowSpeed;
@@ -109,10 +95,6 @@ class _TopBar extends StatelessWidget {
 
   const _TopBar({
     required this.fileName,
-    required this.fitMode,
-    required this.speed,
-    required this.volume,
-    required this.hasMultipleAudio,
     required this.onBack,
     required this.onCycleFitMode,
     required this.onShowSpeed,
@@ -121,7 +103,13 @@ class _TopBar extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fitMode = ref.watch(playerProvider.select((s) => s.fitMode));
+    final speed = ref.watch(playerProvider.select((s) => s.playbackSpeed));
+    final volume = ref.watch(playerProvider.select((s) => s.volume));
+    final hasMultipleAudio = ref.watch(playerProvider.select(
+        (s) => s.audioTracks.where((t) => t.id != 'no' && t.id != 'auto').length > 1));
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
@@ -177,14 +165,15 @@ class _TopBar extends StatelessWidget {
 
 // ── Center Play ───────────────────────────────────────────────────────────────
 
-class _CenterPlayButton extends StatelessWidget {
-  final bool isPlaying;
+class _CenterPlayButton extends ConsumerWidget {
   final VoidCallback onTap;
 
-  const _CenterPlayButton({required this.isPlaying, required this.onTap});
+  const _CenterPlayButton({required this.onTap});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isPlaying = ref.watch(playerProvider.select((s) => s.isPlaying));
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -193,8 +182,7 @@ class _CenterPlayButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0x80000000),
           shape: BoxShape.circle,
-          border: Border.all(
-              color: const Color(0x4DFFFFFF), width: 1.5),
+          border: Border.all(color: const Color(0x4DFFFFFF), width: 1.5),
         ),
         child: Icon(
           isPlaying ? Icons.pause : Icons.play_arrow,
@@ -208,11 +196,7 @@ class _CenterPlayButton extends StatelessWidget {
 
 // ── Bottom Bar ────────────────────────────────────────────────────────────────
 
-class _BottomBar extends StatelessWidget {
-  final Duration position;
-  final Duration duration;
-  final double progress;
-  final bool isFullscreen;
+class _BottomBar extends ConsumerWidget {
   final void Function(double) onSeekStart;
   final void Function(double) onSeekUpdate;
   final void Function(double) onSeekEnd;
@@ -221,10 +205,6 @@ class _BottomBar extends StatelessWidget {
   final VoidCallback onToggleFullscreen;
 
   const _BottomBar({
-    required this.position,
-    required this.duration,
-    required this.progress,
-    required this.isFullscreen,
     required this.onSeekStart,
     required this.onSeekUpdate,
     required this.onSeekEnd,
@@ -234,7 +214,12 @@ class _BottomBar extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final position = ref.watch(playerProvider.select((s) => s.position));
+    final duration = ref.watch(playerProvider.select((s) => s.duration));
+    final progress = ref.watch(playerProvider.select((s) => s.progress));
+    final isFullscreen = ref.watch(playerProvider.select((s) => s.isFullscreen));
+
     return Padding(
       padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
       child: Column(
@@ -261,8 +246,7 @@ class _BottomBar extends StatelessWidget {
           // Seek slider
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
-              thumbShape:
-                  const RoundSliderThumbShape(enabledThumbRadius: 7),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
               trackHeight: 3,
               thumbColor: AppColors.accent,
               activeTrackColor: AppColors.accent,
@@ -287,9 +271,7 @@ class _BottomBar extends StatelessWidget {
               ]),
               IconButton(
                 icon: Icon(
-                  isFullscreen
-                      ? Icons.fullscreen_exit
-                      : Icons.fullscreen,
+                  isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
                   color: Colors.white,
                   size: 26,
                 ),
@@ -314,8 +296,7 @@ class PlayerChip extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
             border: Border.all(color: const Color(0xFF444444)),
             color: Colors.black38,
@@ -341,8 +322,7 @@ class SeekButton extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             border: Border.all(color: AppColors.textDim),
             color: Colors.black45,

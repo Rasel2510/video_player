@@ -52,6 +52,7 @@ class FolderVideosScreen extends StatelessWidget {
         ),
       ),
       body: ListView.builder(
+        itemExtent: 65, // Fixed height optimization
         itemCount: folder.videos.length,
         itemBuilder: (_, i) {
           final vf = folder.videos[i];

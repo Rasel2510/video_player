@@ -171,6 +171,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         ),
         Expanded(
           child: ListView.builder(
+            itemExtent: 69, // Fixed height optimization (40 icon + 28 padding + 1 border)
             itemCount: folders.length,
             itemBuilder: (_, i) {
               final folder = folders[i];
