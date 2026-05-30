@@ -25,6 +25,15 @@ dependencies:
   # Persistence
   shared_preferences: ^2.2.3
 
+  # Thumbnail generation (uses Android MediaMetadataRetriever — no FFmpeg needed)
+  video_thumbnail: ^0.5.3
+
+  # Disk cache directory
+  path_provider: ^2.1.3
+
+  # Screen brightness control for swipe gesture
+  screen_brightness: ^0.2.2+1
+
   # Utilities
   path: ^1.9.0
   wakelock_plus: ^1.2.1

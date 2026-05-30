@@ -1,20 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import '../models/video_file.dart';
 import '../presentation/providers/player_provider.dart';
 import '../presentation/widgets/player/player_controls_overlay.dart';
 import '../presentation/widgets/player/speed_sheet.dart';
 import '../presentation/widgets/player/volume_sheet.dart';
 import '../presentation/widgets/player/audio_track_sheet.dart';
+import '../presentation/widgets/player/subtitle_sheet.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   final String filePath;
   final String fileName;
+  final Duration? resumeFrom;
+  /// Optional: all videos in the same folder for next/previous navigation.
+  final List<VideoFile> folderVideos;
+  final int initialIndex;
 
   const PlayerScreen({
     super.key,
     required this.filePath,
     required this.fileName,
+    this.resumeFrom,
+    this.folderVideos = const [],
+    this.initialIndex = -1,
   });
 
   @override
@@ -22,11 +31,19 @@ class PlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen> {
+  double _dragStartDx = 0;
+  bool _swipeActive = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(playerProvider.notifier).init(widget.filePath);
+      ref.read(playerProvider.notifier).init(
+        widget.filePath,
+        resumeFrom: widget.resumeFrom,
+        folderVideos: widget.folderVideos,
+        initialIndex: widget.initialIndex,
+      );
     });
   }
 
@@ -68,16 +85,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
+  void _showSubtitleSheet(BuildContext context) {
+    final state = ref.read(playerProvider);
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => SubtitleSheet(
+        tracks: state.subtitleTracks,
+        selectedTrack: state.selectedSubtitleTrack,
+        subtitlesEnabled: state.subtitlesEnabled,
+        onSelect: (t) => ref.read(playerProvider.notifier).setSubtitleTrack(t),
+        onToggle: () => ref.read(playerProvider.notifier).toggleSubtitles(),
+      ),
+    );
+  }
+
   BoxFit _boxFit(FitMode mode) => switch (mode) {
         FitMode.contain => BoxFit.contain,
-        FitMode.cover => BoxFit.cover,
-        FitMode.fill => BoxFit.fill,
+        FitMode.cover   => BoxFit.cover,
+        FitMode.fill    => BoxFit.fill,
         FitMode.natural => BoxFit.scaleDown,
       };
 
   @override
   Widget build(BuildContext context) {
     final notifier = ref.read(playerProvider.notifier);
+    final size = MediaQuery.of(context).size;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -85,30 +117,50 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         builder: (context, ref, child) {
           final controlsVisible = ref.watch(playerProvider.select((s) => s.controlsVisible));
           return GestureDetector(
-            onTap: controlsVisible ? notifier.hideControls : notifier.showControls,
+            onTap: () {
+              if (!_swipeActive) {
+                controlsVisible ? notifier.hideControls() : notifier.showControls();
+              }
+            },
             onDoubleTapDown: (details) {
-              final w = MediaQuery.of(context).size.width;
-              details.globalPosition.dx < w / 2
-                  ? notifier.seekRelative(-10)
-                  : notifier.seekRelative(10);
+              if (details.globalPosition.dx < size.width / 2) {
+                notifier.seekRelative(-10);
+              } else {
+                notifier.seekRelative(10);
+              }
+            },
+            onVerticalDragStart: (details) {
+              _dragStartDx = details.globalPosition.dx;
+              _swipeActive = true;
+              notifier.startSwipe(_dragStartDx, size.width);
+            },
+            onVerticalDragUpdate: (details) {
+              notifier.updateSwipe(details.delta.dy, size.height);
+            },
+            onVerticalDragEnd: (_) {
+              _swipeActive = false;
+              notifier.endSwipe();
+            },
+            onVerticalDragCancel: () {
+              _swipeActive = false;
+              notifier.endSwipe();
             },
             child: child,
           );
         },
         child: Stack(
           children: [
-            // Video View
+            // ── Video ──────────────────────────────────────────────────────
             Consumer(
               builder: (context, ref, _) {
                 final isInitialized = ref.watch(playerProvider.select((s) => s.isInitialized));
                 final fitMode = ref.watch(playerProvider.select((s) => s.fitMode));
-                
                 if (isInitialized && notifier.videoController != null) {
                   return Positioned.fill(
                     child: Video(
                       controller: notifier.videoController!,
                       fit: _boxFit(fitMode),
-                      controls: NoVideoControls, // We use our own controls
+                      controls: NoVideoControls,
                     ),
                   );
                 }
@@ -116,42 +168,116 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               },
             ),
 
-            // Controls Overlay
+            // ── Swipe HUD ──────────────────────────────────────────────────
+            Consumer(
+              builder: (context, ref, _) {
+                final gesture = ref.watch(playerProvider.select((s) => s.swipeGesture));
+                final value   = ref.watch(playerProvider.select((s) => s.swipeValue));
+                if (gesture == SwipeGesture.none) return const SizedBox();
+                return _SwipeHud(gesture: gesture, value: value);
+              },
+            ),
+
+            // ── Controls overlay ───────────────────────────────────────────
             Consumer(
               builder: (context, ref, _) {
                 final isInitialized = ref.watch(playerProvider.select((s) => s.isInitialized));
                 if (!isInitialized) return const SizedBox();
-
                 final controlsVisible = ref.watch(playerProvider.select((s) => s.controlsVisible));
-                
+                // Dynamically show current file name from state (changes on next/prev)
+                final currentVideo = ref.watch(playerProvider.select((s) => s.currentVideo));
+                final displayName = currentVideo?.name ?? widget.fileName;
                 return AnimatedOpacity(
                   opacity: controlsVisible ? 1.0 : 0.0,
                   duration: const Duration(milliseconds: 200),
                   child: IgnorePointer(
                     ignoring: !controlsVisible,
                     child: PlayerControlsOverlay(
-                      fileName: widget.fileName,
+                      fileName: displayName,
                       onBack: () => Navigator.pop(context),
                       onTogglePlay: notifier.togglePlay,
                       onCycleFitMode: notifier.cycleFitMode,
-                      onShowSpeed: () {
-                         _showSpeedSheet(context, ref.read(playerProvider).playbackSpeed);
-                      },
-                      onShowVolume: () {
-                         _showVolumeSheet(context, ref.read(playerProvider).volume);
-                      },
+                      onShowSpeed: () =>
+                          _showSpeedSheet(context, ref.read(playerProvider).playbackSpeed),
+                      onShowVolume: () =>
+                          _showVolumeSheet(context, ref.read(playerProvider).volume),
                       onShowAudio: () => _showAudioTrackSheet(context),
+                      onShowSubtitle: () => _showSubtitleSheet(context),
                       onSeekBack: () => notifier.seekRelative(-10),
                       onSeekForward: () => notifier.seekRelative(10),
                       onToggleFullscreen: notifier.toggleFullscreen,
                       onSeekStart: notifier.beginSeek,
                       onSeekUpdate: notifier.updateSeek,
                       onSeekEnd: notifier.endSeek,
+                      onPlayNext: notifier.playNext,
+                      onPlayPrevious: notifier.playPrevious,
                     ),
                   ),
                 );
               },
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Swipe HUD widget ──────────────────────────────────────────────────────────
+
+class _SwipeHud extends StatelessWidget {
+  final SwipeGesture gesture;
+  final double value;
+
+  const _SwipeHud({required this.gesture, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final isBrightness = gesture == SwipeGesture.brightness;
+    final icon = isBrightness
+        ? (value > 0.5 ? Icons.brightness_high : Icons.brightness_low)
+        : (value > 0.5 ? Icons.volume_up : Icons.volume_down);
+    final label = isBrightness ? 'BRIGHTNESS' : 'VOLUME';
+    final color = isBrightness ? const Color(0xFFFFE066) : const Color(0xFF66AAFF);
+    final pct = (value * 100).round();
+
+    return Align(
+      alignment: isBrightness ? Alignment.centerLeft : Alignment.centerRight,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.70),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: 6,
+              height: 100,
+              child: RotatedBox(
+                quarterTurns: -1,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                    value: value.clamp(0.0, 1.0),
+                    backgroundColor: Colors.white24,
+                    valueColor: AlwaysStoppedAnimation(color),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text('$pct%',
+                style: TextStyle(
+                    color: color, fontSize: 11, fontFamily: 'monospace')),
+            const SizedBox(height: 2),
+            Text(label,
+                style: const TextStyle(
+                    color: Colors.white54, fontSize: 8, letterSpacing: 1)),
           ],
         ),
       ),

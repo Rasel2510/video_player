@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/video_entity.dart';
+import 'thumbnail_widget.dart';
 
 class VideoTile extends StatelessWidget {
   final VideoEntity video;
@@ -22,21 +23,28 @@ class VideoTile extends StatelessWidget {
       onTap: onTap,
       onLongPress: onLongPress,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: AppColors.divider)),
         ),
         child: Row(
           children: [
-            _Thumbnail(),
+            VideoThumbnailWidget(
+              videoPath: video.path,
+              width: 80,
+              height: 52,
+            ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(video.name, style: AppTextStyles.body,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 4),
+                  Text(video.name,
+                      style: AppTextStyles.body,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 5),
                   Row(children: [
                     _ExtensionBadge(label: video.extensionLabel),
                     const SizedBox(width: 8),
@@ -46,27 +54,14 @@ class VideoTile extends StatelessWidget {
               ),
             ),
             if (trailing != null) trailing!
-            else const Icon(Icons.chevron_right,
-                size: 18, color: AppColors.textDim),
+            else
+              const Icon(Icons.chevron_right,
+                  size: 18, color: AppColors.textDim),
           ],
         ),
       ),
     );
   }
-}
-
-class _Thumbnail extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 56,
-        height: 40,
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          border: Border.all(color: AppColors.border),
-        ),
-        child: const Icon(Icons.play_circle_outline,
-            color: AppColors.textDim, size: 22),
-      );
 }
 
 class _ExtensionBadge extends StatelessWidget {
