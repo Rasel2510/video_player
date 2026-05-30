@@ -12,12 +12,15 @@ class PlayerControlsOverlay extends StatelessWidget {
   final VoidCallback onShowSpeed;
   final VoidCallback onShowVolume;
   final VoidCallback onShowAudio;
+  final VoidCallback onShowSubtitle;
   final VoidCallback onSeekBack;
   final VoidCallback onSeekForward;
   final VoidCallback onToggleFullscreen;
   final void Function(double) onSeekStart;
   final void Function(double) onSeekUpdate;
   final void Function(double) onSeekEnd;
+  final VoidCallback onPlayNext;
+  final VoidCallback onPlayPrevious;
 
   const PlayerControlsOverlay({
     super.key,
@@ -28,12 +31,15 @@ class PlayerControlsOverlay extends StatelessWidget {
     required this.onShowSpeed,
     required this.onShowVolume,
     required this.onShowAudio,
+    required this.onShowSubtitle,
     required this.onSeekBack,
     required this.onSeekForward,
     required this.onToggleFullscreen,
     required this.onSeekStart,
     required this.onSeekUpdate,
     required this.onSeekEnd,
+    required this.onPlayNext,
+    required this.onPlayPrevious,
   });
 
   @override
@@ -62,10 +68,13 @@ class PlayerControlsOverlay extends StatelessWidget {
               onShowSpeed: onShowSpeed,
               onShowVolume: onShowVolume,
               onShowAudio: onShowAudio,
+              onShowSubtitle: onShowSubtitle,
             ),
             const Spacer(),
-            _CenterPlayButton(
-              onTap: onTogglePlay,
+            _CenterControls(
+              onTogglePlay: onTogglePlay,
+              onPlayPrevious: onPlayPrevious,
+              onPlayNext: onPlayNext,
             ),
             const Spacer(),
             _BottomBar(
@@ -92,6 +101,7 @@ class _TopBar extends ConsumerWidget {
   final VoidCallback onShowSpeed;
   final VoidCallback onShowVolume;
   final VoidCallback onShowAudio;
+  final VoidCallback onShowSubtitle;
 
   const _TopBar({
     required this.fileName,
@@ -100,6 +110,7 @@ class _TopBar extends ConsumerWidget {
     required this.onShowSpeed,
     required this.onShowVolume,
     required this.onShowAudio,
+    required this.onShowSubtitle,
   });
 
   @override
@@ -109,6 +120,10 @@ class _TopBar extends ConsumerWidget {
     final volume = ref.watch(playerProvider.select((s) => s.volume));
     final hasMultipleAudio = ref.watch(playerProvider.select(
         (s) => s.audioTracks.where((t) => t.id != 'no' && t.id != 'auto').length > 1));
+    final hasSubtitles = ref.watch(
+        playerProvider.select((s) => s.subtitleTracks.isNotEmpty));
+    final subtitlesEnabled = ref.watch(
+        playerProvider.select((s) => s.subtitlesEnabled));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -138,6 +153,21 @@ class _TopBar extends ConsumerWidget {
             ),
             const SizedBox(width: 4),
           ],
+          // Subtitle button — always shown; dimmed when no tracks or disabled
+          IconButton(
+            icon: Icon(
+              subtitlesEnabled && hasSubtitles
+                  ? Icons.subtitles
+                  : Icons.subtitles_outlined,
+              size: 20,
+              color: subtitlesEnabled && hasSubtitles
+                  ? AppColors.accent
+                  : Colors.white38,
+            ),
+            onPressed: onShowSubtitle,
+            tooltip: 'Subtitles',
+          ),
+          const SizedBox(width: 4),
           PlayerChip(label: fitMode.label, onTap: onCycleFitMode),
           const SizedBox(width: 8),
           PlayerChip(
@@ -163,35 +193,105 @@ class _TopBar extends ConsumerWidget {
   }
 }
 
-// ── Center Play ───────────────────────────────────────────────────────────────
+// ── Center Controls (Play + Prev/Next) ────────────────────────────────────────
 
-class _CenterPlayButton extends ConsumerWidget {
-  final VoidCallback onTap;
+class _CenterControls extends ConsumerWidget {
+  final VoidCallback onTogglePlay;
+  final VoidCallback onPlayPrevious;
+  final VoidCallback onPlayNext;
 
-  const _CenterPlayButton({required this.onTap});
+  const _CenterControls({
+    required this.onTogglePlay,
+    required this.onPlayPrevious,
+    required this.onPlayNext,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isPlaying = ref.watch(playerProvider.select((s) => s.isPlaying));
+    final hasPrevious = ref.watch(playerProvider.select((s) => s.hasPrevious));
+    final hasNext = ref.watch(playerProvider.select((s) => s.hasNext));
+    final hasSiblings = hasPrevious || hasNext;
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 72,
-        height: 72,
-        decoration: BoxDecoration(
-          color: const Color(0x80000000),
-          shape: BoxShape.circle,
-          border: Border.all(color: const Color(0x4DFFFFFF), width: 1.5),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // Previous button (only if folder context exists)
+        if (hasSiblings) ...[
+          _NavButton(
+            icon: Icons.skip_previous_rounded,
+            enabled: hasPrevious,
+            onTap: onPlayPrevious,
+          ),
+          const SizedBox(width: 20),
+        ],
+
+        // Play/Pause
+        GestureDetector(
+          onTap: onTogglePlay,
+          child: Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: const Color(0x80000000),
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0x4DFFFFFF), width: 1.5),
+            ),
+            child: Icon(
+              isPlaying ? Icons.pause : Icons.play_arrow,
+              size: 40,
+              color: Colors.white,
+            ),
+          ),
         ),
-        child: Icon(
-          isPlaying ? Icons.pause : Icons.play_arrow,
-          size: 40,
-          color: Colors.white,
-        ),
-      ),
+
+        // Next button (only if folder context exists)
+        if (hasSiblings) ...[
+          const SizedBox(width: 20),
+          _NavButton(
+            icon: Icons.skip_next_rounded,
+            enabled: hasNext,
+            onTap: onPlayNext,
+          ),
+        ],
+      ],
     );
   }
+}
+
+class _NavButton extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _NavButton({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: enabled ? onTap : null,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.black38,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: enabled
+                  ? const Color(0x33FFFFFF)
+                  : const Color(0x11FFFFFF),
+            ),
+          ),
+          child: Icon(
+            icon,
+            size: 28,
+            color: enabled ? Colors.white : Colors.white24,
+          ),
+        ),
+      );
 }
 
 // ── Bottom Bar ────────────────────────────────────────────────────────────────
@@ -225,7 +325,6 @@ class _BottomBar extends ConsumerWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Time labels
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -243,7 +342,6 @@ class _BottomBar extends ConsumerWidget {
                   )),
             ],
           ),
-          // Seek slider
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
@@ -260,7 +358,6 @@ class _BottomBar extends ConsumerWidget {
               onChangeEnd: onSeekEnd,
             ),
           ),
-          // Controls row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [

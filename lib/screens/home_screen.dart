@@ -1,10 +1,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import '../core/utils/duration_formatter.dart';
 import '../models/video_file.dart';
+import '../presentation/widgets/thumbnail_widget.dart';
+import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
 import 'player_screen.dart';
-import 'folder_browser_screen.dart';
 import 'library_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -23,7 +25,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 3, vsync: this);
+    _tab = TabController(length: 2, vsync: this);
     _loadRecents();
   }
 
@@ -38,11 +40,50 @@ class _HomeScreenState extends State<HomeScreen>
     if (mounted) setState(() { _recents = r; _loadingRecents = false; });
   }
 
-  void _openVideo(VideoFile vf) {
+  void _openVideo(VideoFile vf) async {
+    final savedPos = await PositionService.instance.load(vf.path);
+    Duration? resumeFrom;
+
+    if (savedPos != null && savedPos > Duration.zero && mounted) {
+      resumeFrom = await showDialog<Duration>(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: const Color(0xFF161616),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+          title: const Text('Resume?',
+              style: TextStyle(color: Colors.white, fontSize: 15)),
+          content: Text(
+            'Last watched at ${DurationFormatter.format(savedPos)}',
+            style: const TextStyle(color: Color(0xFF888888), fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, Duration.zero),
+              child: const Text('FROM START',
+                  style: TextStyle(color: Color(0xFF666666), fontSize: 12)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, savedPos),
+              child: const Text('RESUME',
+                  style: TextStyle(
+                      color: Color(0xFFE8FF00),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+      if (resumeFrom == null) return; // dismissed
+    }
+
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PlayerScreen(filePath: vf.path, fileName: vf.name),
+        builder: (_) => PlayerScreen(
+            filePath: vf.path,
+            fileName: vf.name,
+            resumeFrom: resumeFrom),
       ),
     ).then((_) => _loadRecents());
   }
@@ -130,7 +171,6 @@ class _HomeScreenState extends State<HomeScreen>
           tabs: const [
             Tab(text: 'RECENTS'),
             Tab(text: 'LIBRARY'),
-            Tab(text: 'BROWSE'),
           ],
         ),
       ),
@@ -146,7 +186,6 @@ class _HomeScreenState extends State<HomeScreen>
             onPickFile: _pickSingleVideo,
           ),
           LibraryScreen(onOpenVideo: _openVideo),
-          FolderBrowserScreen(onOpenVideo: _openVideo),
         ],
       ),
     );
@@ -216,7 +255,6 @@ class _RecentsTab extends StatelessWidget {
         ),
         Expanded(
           child: ListView.builder(
-            itemExtent: 65, // Fixed height optimization
             itemCount: recents.length,
             itemBuilder: (_, i) {
               final vf = recents[i];
@@ -266,14 +304,10 @@ class _RecentTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
-              width: 56, height: 40,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A1A1A),
-                border: Border.all(color: const Color(0xFF2A2A2A)),
-              ),
-              child: const Icon(Icons.play_circle_outline,
-                  color: Color(0xFF444444), size: 22),
+            VideoThumbnailWidget(
+              videoPath: vf.path,
+              width: 80,
+              height: 52,
             ),
             const SizedBox(width: 14),
             Expanded(
