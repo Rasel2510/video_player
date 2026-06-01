@@ -126,27 +126,27 @@ final class AppTheme {
         ),
         dividerColor: AppColors.divider,
         iconTheme: const IconThemeData(color: AppColors.textSecondary),
-        inputDecorationTheme: InputDecorationTheme(
+        inputDecorationTheme: const InputDecorationTheme(
           filled: true,
           fillColor: AppColors.panel,
-          hintStyle: const TextStyle(
+          hintStyle: TextStyle(
               color: AppColors.textMuted, fontSize: 14),
           contentPadding:
-              const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           border: OutlineInputBorder(
             borderRadius: AppRadius.sm,
             borderSide:
-                const BorderSide(color: AppColors.border),
+                BorderSide(color: AppColors.border),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: AppRadius.sm,
             borderSide:
-                const BorderSide(color: AppColors.border),
+                BorderSide(color: AppColors.border),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: AppRadius.sm,
             borderSide:
-                const BorderSide(color: AppColors.accent, width: 1.5),
+                BorderSide(color: AppColors.accent, width: 1.5),
           ),
         ),
         bottomSheetTheme: const BottomSheetThemeData(
@@ -160,16 +160,16 @@ final class AppTheme {
           dragHandleColor: AppColors.border,
           showDragHandle: true,
         ),
-        dialogTheme: DialogThemeData(
+        dialogTheme: const DialogThemeData(
           backgroundColor: AppColors.panel,
           surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(
               borderRadius: AppRadius.md),
-          titleTextStyle: const TextStyle(
+          titleTextStyle: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 16,
               fontWeight: FontWeight.w600),
-          contentTextStyle: const TextStyle(
+          contentTextStyle: TextStyle(
               color: AppColors.textSecondary, fontSize: 14),
         ),
         textButtonTheme: TextButtonThemeData(

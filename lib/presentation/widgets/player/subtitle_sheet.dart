@@ -165,7 +165,7 @@ class SubtitleSheet extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: () {
                 Navigator.pop(context);
-                // TODO: file_picker to load .srt/.ass/.vtt — pass to player
+                // TODo: file_picker to load .srt/.ass/.vtt — pass to player
               },
               icon: const Icon(Icons.folder_open_outlined,
                   size: 16, color: AppColors.accent),
