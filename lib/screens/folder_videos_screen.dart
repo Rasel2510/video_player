@@ -106,7 +106,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, Duration.zero),
-            child: Text('Start over',
+            child: const Text('Start over',
                 style: TextStyle(color: AppColors.textSecondary)),
           ),
           FilledButton(
@@ -296,7 +296,7 @@ class _FormatBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppColors.accentSoft,
         borderRadius: AppRadius.xs,
       ),

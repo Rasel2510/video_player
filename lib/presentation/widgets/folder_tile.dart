@@ -29,7 +29,7 @@ class FolderTile extends StatelessWidget {
                 Container(
                   width: 36,
                   height: 36,
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: AppColors.folderTint,
                     borderRadius: AppRadius.xs,
                   ),

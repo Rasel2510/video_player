@@ -298,8 +298,8 @@ class _FolderCard extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF0A2020),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF0A2020),
                                 borderRadius: AppRadius.xs,
                               ),
                               child: const Text('SD',
@@ -417,7 +417,7 @@ class _LibraryHeader extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 1.5),
             ),
           if (fromCache && !isScanning)
-            Text('cached', style: AppTextStyles.caption),
+            const Text('cached', style: AppTextStyles.caption),
           TextButton(
             onPressed: onRescan,
             child: Text(

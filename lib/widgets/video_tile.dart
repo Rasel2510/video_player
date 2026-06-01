@@ -85,7 +85,7 @@ class _FormatBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: AppColors.accentSoft,
           borderRadius: AppRadius.xs,
         ),

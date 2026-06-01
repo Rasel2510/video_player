@@ -94,7 +94,7 @@ class _ResumeDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, Duration.zero),
-          child: Text('Start over',
+          child: const Text('Start over',
               style: TextStyle(color: AppColors.textSecondary)),
         ),
         FilledButton(
