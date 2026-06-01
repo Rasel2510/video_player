@@ -9,6 +9,8 @@ import '../../models/video_file.dart';
 import '../../services/duration_cache_service.dart';
 import '../../services/media_session_service.dart';
 import '../../services/position_service.dart';
+import '../../services/volume_service.dart';
+import '../../services/brightness_service.dart';
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
@@ -174,9 +176,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
     List<VideoFile> folderVideos = const [],
     int initialIndex = -1,
   }) async {
+    final savedVolume = await VolumeService.instance.getVolume();
     state = PlayerState(
       folderVideos: folderVideos,
       currentIndex: initialIndex,
+      volume: savedVolume,
     );
     _disposeInternal();
     _currentPath = filePath;
@@ -260,7 +264,13 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     try {
       _savedBrightness = await ScreenBrightness().current;
-      state = state.copyWith(brightness: _savedBrightness);
+      final savedPlayerBrightness = await BrightnessService.instance.getBrightness();
+      if (savedPlayerBrightness != null) {
+        state = state.copyWith(brightness: savedPlayerBrightness);
+        await ScreenBrightness().setScreenBrightness(savedPlayerBrightness);
+      } else {
+        state = state.copyWith(brightness: _savedBrightness);
+      }
     } catch (_) {}
 
     await _player!.setVolume(state.volume);
@@ -369,6 +379,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _subs.add(_player!.stream.playing.listen((p) { if (p) markReady(); }));
     Future.delayed(const Duration(seconds: 4), markReady);
 
+    await _player!.setVolume(state.volume);
     await _player!.open(Media(filePath));
     final fileName = filePath.split('/').last;
     await MediaSessionService.setMetadata(title: fileName, duration: Duration.zero);
@@ -426,10 +437,16 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void endSwipe() {
+    final gesture = state.swipeGesture;
     _hudTimer?.cancel();
     _hudTimer = Timer(const Duration(milliseconds: 1500), () {
       state = state.copyWith(swipeGesture: SwipeGesture.none);
     });
+    if (gesture == SwipeGesture.volume) {
+      VolumeService.instance.saveVolume(state.volume);
+    } else if (gesture == SwipeGesture.brightness) {
+      BrightnessService.instance.saveBrightness(state.brightness);
+    }
   }
 
   Future<void> _applyBrightness(double value) async {
@@ -499,6 +516,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
   void setVolume(double volume) {
     _player?.setVolume(volume);
     state = state.copyWith(volume: volume);
+    VolumeService.instance.saveVolume(volume);
   }
 
   void setSpeed(double speed) {
