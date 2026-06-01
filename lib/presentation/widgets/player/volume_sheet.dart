@@ -44,7 +44,7 @@ class VolumeSheet extends StatelessWidget {
                     activeTrackColor: AppColors.accent,
                     inactiveTrackColor: AppColors.textDim,
                     thumbColor: AppColors.accent,
-                    overlayColor: AppColors.accentDim,
+                    overlayColor: AppColors.accentSoft,
                     trackHeight: 4,
                   ),
                   child: Slider(

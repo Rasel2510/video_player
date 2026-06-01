@@ -1,5 +1,6 @@
 
 import 'package:flutter/material.dart';
+import '../core/theme/app_theme.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import '../models/video_file.dart';
@@ -90,7 +91,7 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
                 size: 48, color: Color(0xFF2A2A2A)),
             const SizedBox(height: 16),
             const Text('Browse your device folders',
-                style: TextStyle(fontSize: 14, color: Color(0xFF555555))),
+                style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
             const SizedBox(height: 6),
             const Text('Navigate directories to find videos',
                 style: TextStyle(fontSize: 12, color: Color(0xFF333333))),
@@ -101,12 +102,12 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
                 padding: const EdgeInsets.symmetric(
                     horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFFE8FF00)),
+                  border: Border.all(color: AppColors.accent),
                 ),
                 child: const Text('CHOOSE ROOT FOLDER',
                     style: TextStyle(
                       fontSize: 11,
-                      color: Color(0xFFE8FF00),
+                      color: AppColors.accent,
                       letterSpacing: 2,
                       fontWeight: FontWeight.bold,
                     )),
@@ -157,8 +158,8 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
                           style: TextStyle(
                             fontSize: 12,
                             color: isLast
-                                ? const Color(0xFFE8FF00)
-                                : const Color(0xFF555555),
+                                ?  AppColors.accent
+                                :  AppColors.textSecondary,
                             fontFamily: 'monospace',
                           ),
                         ),
@@ -171,7 +172,7 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
               // Change root
               IconButton(
                 icon: const Icon(Icons.drive_folder_upload_outlined,
-                    size: 18, color: Color(0xFF555555)),
+                    size: 18, color: AppColors.textSecondary),
                 tooltip: 'Change root folder',
                 onPressed: _pickRoot,
               ),
@@ -183,7 +184,7 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
         Expanded(
           child: _loading
               ? const Center(
-                  child: CircularProgressIndicator(color: Color(0xFFE8FF00)))
+                  child: CircularProgressIndicator(color: AppColors.accent))
               : _contents == null
                   ? const SizedBox()
                   : _buildContents(),
@@ -205,7 +206,7 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
             Icon(Icons.folder_off_outlined, size: 36, color: Color(0xFF2A2A2A)),
             SizedBox(height: 12),
             Text('Empty folder',
-                style: TextStyle(fontSize: 13, color: Color(0xFF555555))),
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
           ],
         ),
       );
@@ -233,7 +234,7 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
               Text(
                 '${videos.length} VIDEO${videos.length == 1 ? '' : 'S'}',
                 style: const TextStyle(
-                  fontSize: 10, color: Color(0xFF555555),
+                  fontSize: 10, color: AppColors.textSecondary,
                   letterSpacing: 2, fontFamily: 'monospace',
                 ),
               ),
@@ -273,7 +274,7 @@ class _DirTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: Color(0xFF1A1A1A))),
+          border: Border(bottom: BorderSide(color: AppColors.divider)),
         ),
         child: Row(
           children: [

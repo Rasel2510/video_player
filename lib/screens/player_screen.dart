@@ -164,7 +164,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     ),
                   );
                 }
-                return const Center(child: CircularProgressIndicator(color: Color(0xFFE8FF00)));
+                return const Center(child: CircularProgressIndicator());
               },
             ),
 

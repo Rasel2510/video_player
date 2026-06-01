@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/theme/app_theme.dart';
 import '../core/utils/duration_formatter.dart';
 import '../models/video_file.dart';
 import '../models/video_folder.dart';
@@ -17,10 +18,9 @@ class FolderVideosScreen extends StatefulWidget {
 }
 
 class _FolderVideosScreenState extends State<FolderVideosScreen> {
-  // Map<videoPath, saved position>. Null means not yet loaded, Duration.zero means none.
-  final Map<String, Duration?> _positions = {};
-  // Map<videoPath, total duration> — for accurate progress bar
-  final Map<String, Duration?> _durations = {};
+  final Map<String, Duration> _positions = {};
+  final Map<String, Duration> _durations = {};
+  bool _positionsLoaded = false;
 
   @override
   void initState() {
@@ -29,87 +29,94 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
   }
 
   Future<void> _loadPositions() async {
-    for (final vf in widget.folder.videos) {
+    final futures = widget.folder.videos.map((vf) async {
       final pos = await PositionService.instance.load(vf.path);
-      // Load cached duration (fast — SharedPrefs only, no probing here)
       final dur = await DurationCacheService.instance.getDuration(vf.path);
-      if (mounted) {
-        setState(() {
-          _positions[vf.path] = pos ?? Duration.zero;
-          _durations[vf.path] = dur;
-        });
+      return (vf.path, pos ?? Duration.zero, dur);
+    });
+    final results = await Future.wait(futures);
+    if (!mounted) return;
+    setState(() {
+      for (final (path, pos, dur) in results) {
+        _positions[path] = pos;
+        if (dur != null) _durations[path] = dur;
       }
-    }
+      _positionsLoaded = true;
+    });
   }
 
-  Future<void> _openVideo(VideoFile vf) async {
+  VideoFile? get _lastWatched {
+    VideoFile? best;
+    for (final vf in widget.folder.videos) {
+      final pos = _positions[vf.path];
+      if (pos != null && pos > Duration.zero) {
+        if (best == null || vf.modified.isAfter(best.modified)) best = vf;
+      }
+    }
+    return best;
+  }
+
+  Future<void> _openVideo(VideoFile vf, {bool forceResume = false}) async {
     final savedPos = _positions[vf.path];
     Duration? resumeFrom;
 
-    // Show resume dialog only if there's a meaningful saved position
     if (savedPos != null && savedPos > Duration.zero) {
-      resumeFrom = await _showResumeDialog(vf, savedPos);
-      // null = user dismissed dialog → do nothing
-      if (resumeFrom == null) return;
+      if (forceResume) {
+        resumeFrom = savedPos;
+      } else {
+        resumeFrom = await _showResumeDialog(savedPos);
+        if (resumeFrom == null) return;
+      }
     }
 
     if (!mounted) return;
     await RecentFilesService.addRecent(vf);
-
     if (!mounted) return;
-    final nav = Navigator.of(context);     // capture before async gap
-    await nav.push(
-      MaterialPageRoute(
-        builder: (_) => PlayerScreen(
-          filePath: vf.path,
-          fileName: vf.name,
-          resumeFrom: resumeFrom,
-          folderVideos: widget.folder.videos,
-          initialIndex: widget.folder.videos.indexOf(vf),
-        ),
-      ),
-    );
 
-    // Refresh positions after returning
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PlayerScreen(
+        filePath: vf.path,
+        fileName: vf.name,
+        resumeFrom: resumeFrom,
+        folderVideos: widget.folder.videos,
+        initialIndex: widget.folder.videos.indexOf(vf),
+      ),
+    ));
+
+    if (mounted) _refreshPosition(vf.path);
+  }
+
+  Future<void> _refreshPosition(String path) async {
+    final pos = await PositionService.instance.load(path);
+    final dur = await DurationCacheService.instance.getDuration(path);
     if (mounted) {
-      final updated = await PositionService.instance.load(vf.path);
-      final updatedDur = await DurationCacheService.instance.getDuration(vf.path);
-      if (mounted) {
-        setState(() {
-          _positions[vf.path] = updated ?? Duration.zero;
-          if (updatedDur != null) _durations[vf.path] = updatedDur;
-        });
-      }
+      setState(() {
+        _positions[path] = pos ?? Duration.zero;
+        if (dur != null) _durations[path] = dur;
+      });
     }
   }
 
-  /// Returns the position to seek to, or Duration.zero to start from beginning.
-  /// Returns null if dialog was dismissed.
-  Future<Duration?> _showResumeDialog(VideoFile vf, Duration pos) {
+  Future<Duration?> _showResumeDialog(Duration pos) {
     return showDialog<Duration>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF161616),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-        title: const Text('Resume?',
-            style: TextStyle(color: Colors.white, fontSize: 15)),
-        content: Text(
-          'Last watched at ${DurationFormatter.format(pos)}',
-          style: const TextStyle(color: Color(0xFF888888), fontSize: 13),
-        ),
+        title: const Text('Continue watching?'),
+        content: Text('Paused at ${DurationFormatter.format(pos)}'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, Duration.zero),
-            child: const Text('FROM START',
-                style: TextStyle(color: Color(0xFF666666), fontSize: 12)),
+            child: Text('Start over',
+                style: TextStyle(color: AppColors.textSecondary)),
           ),
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.pop(context, pos),
-            child: const Text('RESUME',
-                style: TextStyle(
-                    color: Color(0xFFE8FF00),
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold)),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              foregroundColor: Colors.white,
+              shape: const StadiumBorder(),
+            ),
+            child: const Text('Resume'),
           ),
         ],
       ),
@@ -118,13 +125,13 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final last = _positionsLoaded ? _lastWatched : null;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
+      backgroundColor: AppColors.bg,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F0F0F),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new,
-              size: 18, color: Color(0xFFAAAAAA)),
+          icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
@@ -132,124 +139,211 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
           children: [
             Text(widget.folder.name,
                 style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold)),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                    letterSpacing: -0.2)),
             Text(
-              '${widget.folder.videoCount} video${widget.folder.videoCount == 1 ? '' : 's'}'
+              '${widget.folder.videoCount} '
+              'video${widget.folder.videoCount == 1 ? '' : 's'}'
               ' · ${widget.folder.totalSizeLabel}',
-              style: const TextStyle(
-                  fontSize: 11, color: Color(0xFF555555), letterSpacing: 0.5),
+              style: AppTextStyles.caption,
             ),
           ],
         ),
       ),
+      floatingActionButton: last != null
+          ? _ResumeFab(
+              position: _positions[last.path]!,
+              onTap: () => _openVideo(last, forceResume: true),
+            )
+          : null,
       body: ListView.builder(
+        padding: EdgeInsets.fromLTRB(
+            16, 8, 16, last != null ? 96 : 16),
         itemCount: widget.folder.videos.length,
         itemBuilder: (_, i) {
           final vf = widget.folder.videos[i];
           final savedPos = _positions[vf.path];
           final hasResume = savedPos != null && savedPos > Duration.zero;
-
-          return InkWell(
+          return _VideoCard(
+            vf: vf,
+            savedPos: hasResume ? savedPos : null,
+            totalDur: _durations[vf.path],
             onTap: () => _openVideo(vf),
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: const BoxDecoration(
-                border:
-                    Border(bottom: BorderSide(color: Color(0xFF1A1A1A))),
-              ),
-              child: Row(
-                children: [
-                  // Thumbnail
-                  VideoThumbnailWidget(
-                      videoPath: vf.path, width: 80, height: 52),
-                  const SizedBox(width: 14),
-
-                  // Name + meta + resume bar
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(vf.name,
-                            style: const TextStyle(
-                                fontSize: 13, color: Color(0xFFE0E0E0)),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis),
-                        const SizedBox(height: 4),
-                        Row(children: [
-                          Text(
-                            vf.extension.replaceFirst('.', '').toUpperCase(),
-                            style: const TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFFE8FF00),
-                                fontFamily: 'monospace',
-                                letterSpacing: 1),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(vf.sizeLabel,
-                              style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Color(0xFF555555),
-                                  fontFamily: 'monospace')),
-                          if (hasResume) ...[
-                            const SizedBox(width: 8),
-                            // Resume badge
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1A1A00),
-                                border: Border.all(
-                                    color: const Color(0xFFE8FF00)
-                                        .withValues(alpha: 0.4)),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                              child: Text(
-                                DurationFormatter.format(savedPos),
-                                style: const TextStyle(
-                                    fontSize: 9,
-                                    color: Color(0xFFE8FF00),
-                                    fontFamily: 'monospace'),
-                              ),
-                            ),
-                          ],
-                        ]),
-                        // Progress bar when resume exists
-                        if (hasResume) ...[
-                          const SizedBox(height: 5),
-                          Builder(builder: (_) {
-                            final totalDur = _durations[vf.path];
-                            final progress = (totalDur != null &&
-                                    totalDur.inMilliseconds > 0)
-                                ? (savedPos.inMilliseconds /
-                                        totalDur.inMilliseconds)
-                                    .clamp(0.0, 1.0)
-                                : 0.0;
-                            return ClipRRect(
-                              borderRadius: BorderRadius.circular(1),
-                              child: LinearProgressIndicator(
-                                value: progress,
-                                backgroundColor: const Color(0xFF2A2A2A),
-                                valueColor: const AlwaysStoppedAnimation(
-                                    Color(0xFFE8FF00)),
-                                minHeight: 2,
-                              ),
-                            );
-                          }),
-                        ],
-                      ],
-                    ),
-                  ),
-
-                  const Icon(Icons.chevron_right,
-                      size: 18, color: Color(0xFF2A2A2A)),
-                ],
-              ),
-            ),
           );
         },
+      ),
+    );
+  }
+}
+
+// ── Video card ────────────────────────────────────────────────────────────────
+
+class _VideoCard extends StatelessWidget {
+  final VideoFile vf;
+  final Duration? savedPos;
+  final Duration? totalDur;
+  final VoidCallback onTap;
+
+  const _VideoCard({
+    required this.vf,
+    required this.onTap,
+    this.savedPos,
+    this.totalDur,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (savedPos != null &&
+            totalDur != null &&
+            totalDur!.inMilliseconds > 0)
+        ? (savedPos!.inMilliseconds / totalDur!.inMilliseconds)
+            .clamp(0.0, 1.0)
+        : 0.0;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: AppRadius.md,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          splashColor: AppColors.accentSoft,
+          highlightColor: Colors.transparent,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
+                child: Row(
+                  children: [
+                    // Thumbnail with rounded corners
+                    ClipRRect(
+                      borderRadius: AppRadius.sm,
+                      child: VideoThumbnailWidget(
+                          videoPath: vf.path, width: 88, height: 58),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            vf.name,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.textPrimary,
+                              height: 1.3,
+                              letterSpacing: -0.1,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                          Row(children: [
+                            _FormatBadge(
+                                vf.extension.replaceFirst('.', '')),
+                            const SizedBox(width: 8),
+                            Text(vf.sizeLabel,
+                                style: AppTextStyles.caption),
+                            if (savedPos != null) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                DurationFormatter.format(savedPos!),
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: AppColors.accent,
+                                  fontFamily: 'monospace',
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ]),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded,
+                        size: 18, color: AppColors.textMuted),
+                  ],
+                ),
+              ),
+              // Progress bar at bottom of card
+              if (savedPos != null && progress > 0)
+                LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 2,
+                  backgroundColor: AppColors.progressBg,
+                  valueColor: const AlwaysStoppedAnimation(
+                      AppColors.progressFill),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Format badge ──────────────────────────────────────────────────────────────
+
+class _FormatBadge extends StatelessWidget {
+  final String ext;
+  const _FormatBadge(this.ext);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.accentSoft,
+        borderRadius: AppRadius.xs,
+      ),
+      child: Text(
+        ext.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: AppColors.accent,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+// ── FAB ───────────────────────────────────────────────────────────────────────
+
+class _ResumeFab extends StatelessWidget {
+  final Duration position;
+  final VoidCallback onTap;
+  const _ResumeFab({required this.position, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton.extended(
+      onPressed: onTap,
+      icon: const Icon(Icons.play_arrow_rounded, size: 22),
+      label: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Resume',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.2)),
+          Text(
+            DurationFormatter.format(position),
+            style: const TextStyle(
+              fontSize: 10,
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w400,
+              color: Colors.white70,
+            ),
+          ),
+        ],
       ),
     );
   }

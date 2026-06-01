@@ -330,13 +330,14 @@ class _BottomBar extends ConsumerWidget {
             children: [
               Text(DurationFormatter.format(position),
                   style: const TextStyle(
-                    color: AppColors.accent,
+                    color: Colors.white,
                     fontSize: 12,
                     fontFamily: 'monospace',
+                    fontWeight: FontWeight.w600,
                   )),
               Text(DurationFormatter.format(duration),
                   style: const TextStyle(
-                    color: AppColors.textSecondary,
+                    color: Colors.white38,
                     fontSize: 12,
                     fontFamily: 'monospace',
                   )),
@@ -349,7 +350,7 @@ class _BottomBar extends ConsumerWidget {
               thumbColor: AppColors.accent,
               activeTrackColor: AppColors.accent,
               inactiveTrackColor: AppColors.textDim,
-              overlayColor: AppColors.accentDim,
+              overlayColor: AppColors.accentSoft,
             ),
             child: Slider(
               value: progress.clamp(0.0, 1.0),
@@ -395,16 +396,16 @@ class PlayerChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFF444444)),
-            color: Colors.black38,
+            color: Colors.black45,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white12),
           ),
           child: Text(label,
               style: const TextStyle(
-                color: AppColors.accent,
+                color: Colors.white,
                 fontSize: 11,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1,
-                fontFamily: 'monospace',
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3,
               )),
         ),
       );
@@ -419,16 +420,17 @@ class SeekButton extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
-            border: Border.all(color: AppColors.textDim),
             color: Colors.black45,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white12),
           ),
           child: Text(label,
               style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 12,
-                fontFamily: 'monospace',
+                fontWeight: FontWeight.w500,
               )),
         ),
       );

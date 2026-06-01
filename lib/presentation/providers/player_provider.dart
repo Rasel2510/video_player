@@ -19,14 +19,12 @@ enum FitMode { contain, cover, fill, natural }
 extension FitModeX on FitMode {
   String get label => switch (this) {
         FitMode.contain => 'FIT',
-        FitMode.cover => 'CROP',
-        FitMode.fill => 'FILL',
+        FitMode.cover   => 'CROP',
+        FitMode.fill    => 'FILL',
         FitMode.natural => 'AUTO',
       };
   FitMode get next => FitMode.values[(index + 1) % FitMode.values.length];
 }
-
-// ── Swipe gesture kind ────────────────────────────────────────────────────────
 
 enum SwipeGesture { none, brightness, volume }
 
@@ -42,21 +40,15 @@ class PlayerState {
   final Duration position;
   final Duration duration;
   final double volume;
-  final double brightness;      // 0.0–1.0
+  final double brightness;
   final double playbackSpeed;
   final FitMode fitMode;
   final List<AudioTrack> audioTracks;
   final AudioTrack? selectedAudioTrack;
-
-  // Swipe gesture HUD
   final SwipeGesture swipeGesture;
   final double swipeValue;
-
-  // Next/Previous navigation
   final List<VideoFile> folderVideos;
   final int currentIndex;
-
-  // Subtitle
   final List<SubtitleTrack> subtitleTracks;
   final SubtitleTrack? selectedSubtitleTrack;
   final bool subtitlesEnabled;
@@ -92,7 +84,8 @@ class PlayerState {
       : 0.0;
 
   bool get hasPrevious => currentIndex > 0;
-  bool get hasNext => currentIndex >= 0 && currentIndex < folderVideos.length - 1;
+  bool get hasNext =>
+      currentIndex >= 0 && currentIndex < folderVideos.length - 1;
 
   VideoFile? get currentVideo =>
       currentIndex >= 0 && currentIndex < folderVideos.length
@@ -160,7 +153,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
   double _savedBrightness = 0.5;
   final List<StreamSubscription> _subs = [];
 
-  // Lock screen — method channel callback
   static const _mediaChannel =
       MethodChannel('com.example.flutter_video_player/media_session');
 
@@ -169,6 +161,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   Player? get player => _player;
   VideoController? get videoController => _videoController;
+
+  // ── Init ─────────────────────────────────────────────────────────────────────
 
   Future<void> init(
     String filePath, {
@@ -182,13 +176,14 @@ class PlayerNotifier extends Notifier<PlayerState> {
       currentIndex: initialIndex,
       volume: savedVolume,
     );
+
     _disposeInternal();
     _currentPath = filePath;
 
     _player = Player();
     _videoController = VideoController(_player!);
 
-    // Lock screen — listen for media button callbacks from Android
+    // Lock screen — receive media button callbacks from Android
     _mediaChannel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'onMediaAction':
@@ -212,62 +207,13 @@ class PlayerNotifier extends Notifier<PlayerState> {
       }
     });
 
-    bool frameReady = false;
-    void markReady() {
-      if (frameReady) return;
-      frameReady = true;
-      state = state.copyWith(isInitialized: true);
-      _startHideTimer();
-      if (resumeFrom != null && resumeFrom > Duration.zero) {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          _player?.seek(resumeFrom);
-        });
-      }
-    }
-
-    _subs.add(_player!.stream.playing.listen((v) {
-      state = state.copyWith(isPlaying: v);
-      _updateLockScreenState();
-    }));
-    _subs.add(_player!.stream.position.listen((v) {
-      state = state.copyWith(position: v);
-      _saveTimer?.cancel();
-      _saveTimer = Timer(const Duration(seconds: 5), _savePosition);
-    }));
-    _subs.add(_player!.stream.duration.listen((v) {
-      if (v > Duration.zero) {
-        state = state.copyWith(duration: v);
-        // Cache the duration whenever media_kit reports it
-        if (_currentPath != null) {
-          DurationCacheService.instance.saveDuration(_currentPath!, v);
-        }
-        _setLockScreenMetadata();
-      }
-    }));
-    _subs.add(_player!.stream.volume.listen((v) => state = state.copyWith(volume: v)));
-    _subs.add(_player!.stream.rate.listen((v) => state = state.copyWith(playbackSpeed: v)));
-    _subs.add(_player!.stream.tracks.listen((v) {
-      // Filter out subtitle tracks with id 'no' (disabled) and 'auto'
-      final subs = v.subtitle
-          .where((t) => t.id != 'no' && t.id != 'auto')
-          .toList();
-      state = state.copyWith(
-        audioTracks: v.audio,
-        selectedAudioTrack: _player!.state.track.audio,
-        subtitleTracks: subs,
-        selectedSubtitleTrack: _player!.state.track.subtitle,
-      );
-    }));
-    _subs.add(_player!.stream.width.listen((w) { if (w != null && w > 0) markReady(); }));
-    _subs.add(_player!.stream.playing.listen((p) { if (p) markReady(); }));
-    Future.delayed(const Duration(seconds: 4), markReady);
-
+    // Setup brightness
     try {
       _savedBrightness = await ScreenBrightness().current;
-      final savedPlayerBrightness = await BrightnessService.instance.getBrightness();
-      if (savedPlayerBrightness != null) {
-        state = state.copyWith(brightness: savedPlayerBrightness);
-        await ScreenBrightness().setScreenBrightness(savedPlayerBrightness);
+      final saved = await BrightnessService.instance.getBrightness();
+      if (saved != null) {
+        state = state.copyWith(brightness: saved);
+        await ScreenBrightness().setScreenBrightness(saved);
       } else {
         state = state.copyWith(brightness: _savedBrightness);
       }
@@ -275,16 +221,92 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     await _player!.setVolume(state.volume);
     await _player!.setRate(state.playbackSpeed);
+
+    // Subscribe to streams — single helper avoids duplication and duplicate listeners
+    _listenStreams(onReady: () {
+      state = state.copyWith(isInitialized: true);
+      _startHideTimer();
+      if (resumeFrom != null && resumeFrom > Duration.zero) {
+        Future.delayed(const Duration(milliseconds: 300), () {
+          _player?.seek(resumeFrom);
+        });
+      }
+    });
+
     await _player!.open(Media(filePath));
     await WakelockPlus.enable();
 
-    // Set lock screen metadata right away with filename
-    final fileName = filePath.split('/').last;
+    // Seed the lock screen metadata immediately with the filename
     await MediaSessionService.setMetadata(
-      title: fileName,
-      duration: state.duration,
+      title: filePath.split('/').last,
+      duration: Duration.zero,
     );
   }
+
+  // ── Stream subscription helper (DRY — used by init and _switchVideo) ────────
+
+  /// Subscribes to all [_player] streams.
+  /// [onReady] fires once when the first frame is ready (or after a 4 s timeout).
+  void _listenStreams({required VoidCallback onReady}) {
+    bool frameReady = false;
+    void markReady() {
+      if (frameReady) return;
+      frameReady = true;
+      onReady();
+    }
+
+    // FIX: Single playing subscription handles both state update AND markReady.
+    // Previously there were TWO listeners on stream.playing which doubled
+    // processing and risked out-of-order state mutations.
+    _subs.add(_player!.stream.playing.listen((v) {
+      state = state.copyWith(isPlaying: v);
+      _updateLockScreenState();
+      if (v) markReady(); // first play event = frame ready
+    }));
+
+    _subs.add(_player!.stream.position.listen((v) {
+      state = state.copyWith(position: v);
+      // Debounce: cancel the previous timer before starting a new one.
+      // This fires several times/sec so we only write to disk after a 5 s idle.
+      _saveTimer?.cancel();
+      _saveTimer = Timer(const Duration(seconds: 5), _savePosition);
+    }));
+
+    _subs.add(_player!.stream.duration.listen((v) {
+      if (v <= Duration.zero) return;
+      state = state.copyWith(duration: v);
+      if (_currentPath != null) {
+        DurationCacheService.instance.saveDuration(_currentPath!, v);
+      }
+      _setLockScreenMetadata();
+    }));
+
+    _subs.add(
+        _player!.stream.volume.listen((v) => state = state.copyWith(volume: v)));
+    _subs.add(_player!.stream.rate
+        .listen((v) => state = state.copyWith(playbackSpeed: v)));
+
+    _subs.add(_player!.stream.tracks.listen((v) {
+      final subs =
+          v.subtitle.where((t) => t.id != 'no' && t.id != 'auto').toList();
+      state = state.copyWith(
+        audioTracks: v.audio,
+        selectedAudioTrack: _player!.state.track.audio,
+        subtitleTracks: subs,
+        selectedSubtitleTrack: _player!.state.track.subtitle,
+      );
+    }));
+
+    // Width stream: non-zero width means the video frame is ready.
+    _subs.add(_player!.stream.width.listen((w) {
+      if (w != null && w > 0) markReady();
+    }));
+
+    // Safety fallback: mark ready after 4 s regardless.
+    Future.delayed(const Duration(seconds: 4), markReady);
+  }
+
+  // ── Lock screen helpers ───────────────────────────────────────────────────────
 
   void _setLockScreenMetadata() {
     final fileName = _currentPath?.split('/').last ?? '';
@@ -304,23 +326,22 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   Future<void> _savePosition() async {
     if (_currentPath == null) return;
-    await PositionService.instance.save(_currentPath!, state.position, state.duration);
+    await PositionService.instance
+        .save(_currentPath!, state.position, state.duration);
   }
 
-  // ── Next / Previous ─────────────────────────────────────────────────────────
+  // ── Next / Previous ────────────────────────────────────────────────────────
 
   Future<void> playNext() async {
     if (!state.hasNext) return;
     final nextIndex = state.currentIndex + 1;
-    final nextVideo = state.folderVideos[nextIndex];
-    await _switchVideo(nextVideo.path, nextIndex);
+    await _switchVideo(state.folderVideos[nextIndex].path, nextIndex);
   }
 
   Future<void> playPrevious() async {
     if (!state.hasPrevious) return;
     final prevIndex = state.currentIndex - 1;
-    final prevVideo = state.folderVideos[prevIndex];
-    await _switchVideo(prevVideo.path, prevIndex);
+    await _switchVideo(state.folderVideos[prevIndex].path, prevIndex);
   }
 
   Future<void> _switchVideo(String filePath, int index) async {
@@ -333,56 +354,26 @@ class PlayerNotifier extends Notifier<PlayerState> {
       duration: Duration.zero,
       isSeeking: false,
     );
+
+    // Cancel all current stream subscriptions before re-subscribing.
     _disposeStreams();
 
+    // Reuse the existing Player instance — avoid creating a new one.
     _player ??= Player();
     _videoController ??= VideoController(_player!);
 
-    bool frameReady = false;
-    void markReady() {
-      if (frameReady) return;
-      frameReady = true;
+    _listenStreams(onReady: () {
       state = state.copyWith(isInitialized: true);
       _startHideTimer();
-    }
-
-    _subs.add(_player!.stream.playing.listen((v) {
-      state = state.copyWith(isPlaying: v);
-      _updateLockScreenState();
-    }));
-    _subs.add(_player!.stream.position.listen((v) {
-      state = state.copyWith(position: v);
-      _saveTimer?.cancel();
-      _saveTimer = Timer(const Duration(seconds: 5), _savePosition);
-    }));
-    _subs.add(_player!.stream.duration.listen((v) {
-      if (v > Duration.zero) {
-        state = state.copyWith(duration: v);
-        if (_currentPath != null) {
-          DurationCacheService.instance.saveDuration(_currentPath!, v);
-        }
-        _setLockScreenMetadata();
-      }
-    }));
-    _subs.add(_player!.stream.volume.listen((v) => state = state.copyWith(volume: v)));
-    _subs.add(_player!.stream.rate.listen((v) => state = state.copyWith(playbackSpeed: v)));
-    _subs.add(_player!.stream.tracks.listen((v) {
-      final subs = v.subtitle.where((t) => t.id != 'no' && t.id != 'auto').toList();
-      state = state.copyWith(
-        audioTracks: v.audio,
-        selectedAudioTrack: _player!.state.track.audio,
-        subtitleTracks: subs,
-        selectedSubtitleTrack: _player!.state.track.subtitle,
-      );
-    }));
-    _subs.add(_player!.stream.width.listen((w) { if (w != null && w > 0) markReady(); }));
-    _subs.add(_player!.stream.playing.listen((p) { if (p) markReady(); }));
-    Future.delayed(const Duration(seconds: 4), markReady);
+    });
 
     await _player!.setVolume(state.volume);
     await _player!.open(Media(filePath));
-    final fileName = filePath.split('/').last;
-    await MediaSessionService.setMetadata(title: fileName, duration: Duration.zero);
+
+    await MediaSessionService.setMetadata(
+      title: filePath.split('/').last,
+      duration: Duration.zero,
+    );
   }
 
   // ── Subtitle ────────────────────────────────────────────────────────────────
@@ -410,9 +401,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
   // ── Swipe gestures ──────────────────────────────────────────────────────────
 
   SwipeGesture startSwipe(double dx, double screenWidth) {
-    final gesture = dx < screenWidth / 2
-        ? SwipeGesture.brightness
-        : SwipeGesture.volume;
+    final gesture =
+        dx < screenWidth / 2 ? SwipeGesture.brightness : SwipeGesture.volume;
     state = state.copyWith(
       swipeGesture: gesture,
       swipeValue: gesture == SwipeGesture.brightness
@@ -428,7 +418,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
     if (state.swipeGesture == SwipeGesture.brightness) {
       final newBrightness = (state.brightness + delta).clamp(0.0, 1.0);
       _applyBrightness(newBrightness);
-      state = state.copyWith(brightness: newBrightness, swipeValue: newBrightness);
+      state =
+          state.copyWith(brightness: newBrightness, swipeValue: newBrightness);
     } else {
       final newVol = ((state.volume / 100.0) + delta).clamp(0.0, 1.0);
       _player?.setVolume(newVol * 100);
@@ -450,20 +441,26 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   Future<void> _applyBrightness(double value) async {
-    try { await ScreenBrightness().setScreenBrightness(value); } catch (_) {}
+    try {
+      await ScreenBrightness().setScreenBrightness(value);
+    } catch (_) {}
   }
 
-  // ── Controls ────────────────────────────────────────────────────────────────
+  // ── Controls visibility ───────────────────────────────────────────────────
 
   void _disposeStreams() {
     _saveTimer?.cancel();
-    for (final s in _subs) { s.cancel(); }
+    for (final s in _subs) {
+      s.cancel();
+    }
     _subs.clear();
   }
 
   void _disposeInternal() {
     _saveTimer?.cancel();
-    for (final s in _subs) { s.cancel(); }
+    for (final s in _subs) {
+      s.cancel();
+    }
     _subs.clear();
     _player?.dispose();
     _player = null;
@@ -502,12 +499,15 @@ class PlayerNotifier extends Notifier<PlayerState> {
     showControls();
   }
 
-  void beginSeek(double value) => state = state.copyWith(isSeeking: true, seekValue: value);
+  void beginSeek(double value) =>
+      state = state.copyWith(isSeeking: true, seekValue: value);
+
   void updateSeek(double value) => state = state.copyWith(seekValue: value);
 
   void endSeek(double value) {
     if (_player == null) return;
-    final target = Duration(milliseconds: (value * state.duration.inMilliseconds).round());
+    final target =
+        Duration(milliseconds: (value * state.duration.inMilliseconds).round());
     _player!.seek(target);
     state = state.copyWith(isSeeking: false);
     showControls();
@@ -563,7 +563,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _disposeInternal();
     state = const PlayerState();
     await MediaSessionService.release();
-    try { await ScreenBrightness().resetScreenBrightness(); } catch (_) {}
+    try {
+      await ScreenBrightness().resetScreenBrightness();
+    } catch (_) {}
     await WakelockPlus.disable();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,

@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../../core/theme/app_theme.dart';
 import '../../services/thumbnail_service.dart';
 
-/// Async thumbnail widget with shimmer placeholder and graceful fallback.
-/// Works for any video path. Caches to disk via [ThumbnailService].
+/// Async thumbnail with shimmer placeholder and graceful fallback.
 class VideoThumbnailWidget extends StatefulWidget {
   final String videoPath;
   final double width;
@@ -12,8 +12,8 @@ class VideoThumbnailWidget extends StatefulWidget {
   const VideoThumbnailWidget({
     super.key,
     required this.videoPath,
-    this.width = 80,
-    this.height = 56,
+    this.width = 88,
+    this.height = 58,
   });
 
   @override
@@ -53,15 +53,11 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
     return SizedBox(
       width: widget.width,
       height: widget.height,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(2),
-        child: _buildInner(),
-      ),
+      child: _buildInner(),
     );
   }
 
   Widget _buildInner() {
-    // Thumbnail loaded successfully
     if (_thumb != null) {
       return Stack(
         fit: StackFit.expand,
@@ -69,62 +65,52 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
           Image.file(
             _thumb!,
             fit: BoxFit.cover,
-            // If file was deleted externally, fall back gracefully
             errorBuilder: (_, __, ___) => _placeholder(),
           ),
-          // Subtle dark play icon overlay
           Center(
             child: Container(
-              width: 24,
-              height: 24,
+              width: 28,
+              height: 28,
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.45),
+                color: Colors.black.withValues(alpha: 0.5),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.play_arrow,
-                  color: Colors.white, size: 15),
+              child: const Icon(Icons.play_arrow_rounded,
+                  color: Colors.white, size: 16),
             ),
           ),
         ],
       );
     }
-
-    // Failed to generate (unsupported format, etc.)
     if (_failed) return _placeholder();
-
-    // Still loading → shimmer
-    return _Shimmer();
+    return const _Shimmer();
   }
 
   Widget _placeholder() => Container(
-        color: const Color(0xFF1A1A1A),
+        color: AppColors.elevated,
         child: const Icon(Icons.movie_outlined,
-            color: Color(0xFF3A3A3A), size: 22),
+            color: AppColors.textMuted, size: 22),
       );
 }
 
-/// Simple shimmer animation shown while thumbnail generates.
 class _Shimmer extends StatefulWidget {
+  const _Shimmer();
+
   @override
   State<_Shimmer> createState() => _ShimmerState();
 }
 
 class _ShimmerState extends State<_Shimmer>
     with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _anim;
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1000),
+  )..repeat(reverse: true);
 
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-    _anim = Tween(begin: 0.06, end: 0.18).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
-  }
+  late final Animation<double> _anim =
+      Tween(begin: 0.04, end: 0.12).animate(
+    CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+  );
 
   @override
   void dispose() {
@@ -133,12 +119,10 @@ class _ShimmerState extends State<_Shimmer>
   }
 
   @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _anim,
-      builder: (_, __) => Container(
-        color: Color.fromRGBO(255, 255, 255, _anim.value),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _anim,
+        builder: (_, __) => Container(
+          color: Color.fromRGBO(255, 255, 255, _anim.value),
+        ),
+      );
 }
