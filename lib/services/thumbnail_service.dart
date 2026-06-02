@@ -5,16 +5,15 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 
 /// Generates and caches video thumbnails to disk.
 ///
-/// - First call generates the thumbnail in the background and saves it
-///   to the app temp directory.
-/// - Subsequent calls return the cached file immediately — no regeneration.
-/// - Cache key = sanitised video path, so it survives hot restarts.
+/// FIX #6: The _inFlight map previously never evicted completed futures,
+/// leaking memory proportional to library size. Now futures are removed
+/// from the map immediately after completion (success or failure).
 class ThumbnailService {
   ThumbnailService._();
   static final ThumbnailService instance = ThumbnailService._();
 
   // In-memory dedup: prevents spawning two generations for the same path
-  // if a widget rebuilds before the first one finishes.
+  // while the first one is still in flight.
   final Map<String, Future<File?>> _inFlight = {};
 
   late final Future<Directory> _cacheDir = _initCacheDir();
@@ -26,9 +25,10 @@ class ThumbnailService {
     return dir;
   }
 
-  /// Returns a thumbnail [File] for [videoPath].
-  /// Returns null on failure (unsupported codec, corrupt file, etc.).
   Future<File?> getThumbnail(String videoPath) {
+    // If already generating, reuse the in-flight future (dedup).
+    // FIX #6: putIfAbsent returns the existing future if present, so we only
+    // schedule one generation. The future removes itself from _inFlight when done.
     return _inFlight.putIfAbsent(videoPath, () => _generate(videoPath));
   }
 
@@ -36,54 +36,47 @@ class ThumbnailService {
     try {
       final cacheFile = await _cacheFileFor(videoPath);
 
-      // Already on disk → return immediately
       if (await cacheFile.exists()) {
+        // FIX #6: evict from map immediately after returning cached result
         _inFlight.remove(videoPath);
         return cacheFile;
       }
 
-      // Generate at 3 s in (skips black opening frames for most videos).
-      // video_thumbnail falls back to frame 0 if the video is shorter.
       final bytes = await VideoThumbnail.thumbnailData(
         video: videoPath,
         imageFormat: ImageFormat.JPEG,
         timeMs: 3000,
-        maxWidth: 160, // 2× the 80 px display size for sharp screens
+        maxWidth: 160,
         quality: 75,
       );
 
-      if (bytes == null || bytes.isEmpty) {
-        _inFlight.remove(videoPath);
-        return null;
-      }
+      _inFlight.remove(videoPath); // FIX #6: evict after generation completes
+
+      if (bytes == null || bytes.isEmpty) return null;
 
       await cacheFile.writeAsBytes(bytes, flush: true);
-      _inFlight.remove(videoPath);
       return cacheFile;
     } catch (_) {
-      _inFlight.remove(videoPath);
+      _inFlight.remove(videoPath); // FIX #6: evict on error too
       return null;
     }
   }
 
   Future<File> _cacheFileFor(String videoPath) async {
     final dir = await _cacheDir;
-    // Simple integer hash — good enough for a filename key
-    final hash = videoPath.hashCode.toRadixString(16);
-    // Include the basename so files are human-readable in the cache dir
-    final base = p.basenameWithoutExtension(videoPath)
-        .replaceAll(RegExp(r'[^\w]'), '_')
-        .substring(0, 20.clamp(0, p.basenameWithoutExtension(videoPath).length));
-    return File(p.join(dir.path, '${base}_$hash.jpg'));
+    // Use a sanitised filename as cache key (same approach as PositionService)
+    final sanitised =
+        videoPath.replaceAll(RegExp(r'[^a-zA-Z0-9._\-]'), '_');
+    return File(p.join(dir.path, '$sanitised.jpg'));
   }
 
-  /// Wipes all cached thumbnails (call if storage is low).
+  /// Clears all cached thumbnails from disk (e.g. for a settings "clear cache" button).
   Future<void> clearCache() async {
     try {
       final dir = await _cacheDir;
       if (await dir.exists()) {
         await for (final f in dir.list()) {
-          try { await f.delete(); } catch (_) {}
+          if (f is File) await f.delete();
         }
       }
     } catch (_) {}

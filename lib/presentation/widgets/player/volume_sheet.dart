@@ -13,30 +13,19 @@ class VolumeSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
-        color: Color(0xFF161616),
-        border: Border(top: BorderSide(color: Color(0xFF2A2A2A))),
-      ),
+    // FIX #5: Replaced all hardcoded Color(0xFF161616) / Color(0xFF2A2A2A) with
+    // AppColors tokens so this sheet respects the theme like every other widget.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'VOLUME',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 3,
-              color: AppColors.accent,
-              fontFamily: 'monospace',
-            ),
-          ),
+          const Text('VOLUME', style: AppTextStyles.label),
           const SizedBox(height: 20),
           Row(
             children: [
-              const Icon(Icons.volume_off,
+              const Icon(Icons.volume_off_rounded,
                   color: AppColors.textMuted, size: 20),
               Expanded(
                 child: SliderTheme(
@@ -46,6 +35,7 @@ class VolumeSheet extends StatelessWidget {
                     thumbColor: AppColors.accent,
                     overlayColor: AppColors.accentSoft,
                     trackHeight: 4,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
                   ),
                   child: Slider(
                     min: 0.0,
@@ -55,42 +45,49 @@ class VolumeSheet extends StatelessWidget {
                   ),
                 ),
               ),
-              const Icon(Icons.volume_up,
+              const Icon(Icons.volume_up_rounded,
                   color: AppColors.textMuted, size: 20),
               const SizedBox(width: 12),
               SizedBox(
-                width: 40,
+                width: 42,
                 child: Text(
                   '${volume.round()}%',
                   style: const TextStyle(
                     color: AppColors.accent,
                     fontFamily: 'monospace',
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
+          // Quick-set presets
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [0.0, 25.0, 50.0, 75.0, 100.0].map((v) {
               final active = (volume - v).abs() < 1.0;
               return GestureDetector(
                 onTap: () => onChanged(v),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 120),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                   decoration: BoxDecoration(
+                    // FIX #5: using AppColors tokens
+                    color: active ? AppColors.accentSoft : Colors.transparent,
                     border: Border.all(
-                      color: active ? AppColors.accent : AppColors.textDim,
+                      color: active ? AppColors.accent : AppColors.border,
                     ),
-                    color: active ? AppColors.accent.withValues(alpha: 0.1) : Colors.transparent,
+                    borderRadius: AppRadius.sm,
                   ),
                   child: Text(
                     '${v.round()}%',
                     style: TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 12,
+                      fontWeight: FontWeight.w600,
                       color: active ? AppColors.accent : AppColors.textMuted,
                     ),
                   ),
@@ -98,7 +95,7 @@ class VolumeSheet extends StatelessWidget {
               );
             }).toList(),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
         ],
       ),
     );

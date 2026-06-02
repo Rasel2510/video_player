@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../core/theme/app_theme.dart';
-import '../core/utils/duration_formatter.dart';
 import '../models/video_file.dart';
+import '../presentation/widgets/resume_dialog.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
 import 'library_screen.dart';
@@ -30,10 +30,8 @@ class HomeScreen extends StatelessWidget {
     final savedPos = await PositionService.instance.load(vf.path);
     Duration? resumeFrom;
     if (savedPos != null && savedPos > Duration.zero && context.mounted) {
-      resumeFrom = await showDialog<Duration>(
-        context: context,
-        builder: (_) => _ResumeDialog(position: savedPos),
-      );
+      // FIX #3: use shared ResumeDialog
+      resumeFrom = await ResumeDialog.show(context, savedPos);
       if (resumeFrom == null) return;
     }
     if (!context.mounted) return;
@@ -78,37 +76,6 @@ class HomeScreen extends StatelessWidget {
         ],
       ),
       body: LibraryScreen(onOpenVideo: (vf) => _openVideo(context, vf)),
-    );
-  }
-}
-
-class _ResumeDialog extends StatelessWidget {
-  final Duration position;
-  const _ResumeDialog({required this.position});
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Continue watching?'),
-      content: Text('Paused at ${DurationFormatter.format(position)}'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, Duration.zero),
-          child: const Text('Start over',
-              style: TextStyle(color: AppColors.textSecondary)),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, position),
-          style: FilledButton.styleFrom(
-            backgroundColor: AppColors.accent,
-            foregroundColor: Colors.white,
-            shape: const StadiumBorder(),
-            textStyle: const TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-          child: const Text('Resume'),
-        ),
-      ],
     );
   }
 }

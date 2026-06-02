@@ -6,7 +6,7 @@ import '../core/utils/duration_formatter.dart';
 import '../models/video_file.dart';
 import '../models/video_folder.dart';
 import '../presentation/providers/folders_provider.dart';
-
+import '../presentation/providers/player_provider.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
 import 'folder_videos_screen.dart';
@@ -25,6 +25,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   bool _permissionGranted = false;
   bool _checkingPermission = true;
   final Map<String, _FolderResume?> _folderResumes = {};
+
+  // FIX #2: Track the last folder list we loaded resumes for, so we only
+  // trigger _loadFolderResumes when the folder list actually changes — not
+  // on every Riverpod rebuild (e.g. scan progress ticks).
+  List<VideoFolder>? _lastFoldersLoaded;
 
   @override
   bool get wantKeepAlive => true;
@@ -65,19 +70,36 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (granted) ref.read(foldersProvider.notifier).load(forceScan: false);
   }
 
+  // FIX #2: Only called when folders list identity changes, not on every build.
+  // FIX #7 (already applied in folder_videos_screen): batch with Future.wait.
   Future<void> _loadFolderResumes(List<VideoFolder> folders) async {
-    for (final folder in folders) {
-      if (_folderResumes.containsKey(folder.path)) continue;
+    final futures = folders
+        .where((f) => !_folderResumes.containsKey(f.path))
+        .map((folder) async {
       final resume = await _findLastWatched(folder);
-      if (mounted) setState(() => _folderResumes[folder.path] = resume);
-    }
+      return (folder.path, resume);
+    });
+
+    final results = await Future.wait(futures);
+    if (!mounted) return;
+    setState(() {
+      for (final (path, resume) in results) {
+        _folderResumes[path] = resume;
+      }
+    });
   }
 
   Future<_FolderResume?> _findLastWatched(VideoFolder folder) async {
+    // Batch all position reads for this folder simultaneously
+    final futures = folder.videos.map((vf) async {
+      final pos = await PositionService.instance.load(vf.path);
+      return (vf, pos);
+    });
+    final results = await Future.wait(futures);
+
     VideoFile? best;
     Duration? bestPos;
-    for (final vf in folder.videos) {
-      final pos = await PositionService.instance.load(vf.path);
+    for (final (vf, pos) in results) {
       if (pos != null && pos > Duration.zero) {
         if (best == null || vf.modified.isAfter(best.modified)) {
           best = vf;
@@ -91,8 +113,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   void _openFolder(VideoFolder folder) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-          builder: (_) => FolderVideosScreen(folder: folder)),
+      MaterialPageRoute(builder: (_) => FolderVideosScreen(folder: folder)),
     ).then((_) {
       if (mounted) {
         setState(() => _folderResumes.remove(folder.path));
@@ -120,8 +141,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     );
     if (mounted) {
       setState(() => _folderResumes.remove(folder.path));
-      _findLastWatched(folder)
-          .then((r) {
+      _findLastWatched(folder).then((r) {
         if (mounted) setState(() => _folderResumes[folder.path] = r);
       });
     }
@@ -132,8 +152,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     super.build(context);
 
     if (_checkingPermission) {
-      return const Center(
-          child: CircularProgressIndicator());
+      return const Center(child: CircularProgressIndicator());
     }
     if (!_permissionGranted) {
       return _PermissionPrompt(onRetry: _checkPermissionsAndLoad);
@@ -154,7 +173,21 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
     final folders = state.folders;
     final hasMultiStorage = state.storageRoots.length > 1;
-    _loadFolderResumes(folders);
+
+    // FIX #2: Only trigger resume loading when the folder list object changes.
+    // Previously this was called unconditionally inside build(), causing
+    // redundant async work on every Riverpod state update.
+    if (!identical(_lastFoldersLoaded, folders)) {
+      _lastFoldersLoaded = folders;
+      // Schedule after the current frame so we don't call setState during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadFolderResumes(folders);
+      });
+    }
+
+    // FIX #11: watch the player to show "now playing" indicator
+    final nowPlayingPath = ref.watch(
+        playerProvider.select((s) => s.currentVideo?.path));
 
     return Column(
       children: [
@@ -165,8 +198,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           fromCache: state.fromCache,
           onRescan: state.isScanning
               ? null
-              : () =>
-                  ref.read(foldersProvider.notifier).load(forceScan: true),
+              : () => ref.read(foldersProvider.notifier).load(forceScan: true),
         ),
         Expanded(
           child: ListView.builder(
@@ -177,9 +209,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               final resume = _folderResumes[folder.path];
               final isExternal =
                   hasMultiStorage && !folder.path.contains('/emulated/');
+              // FIX #11: highlight the folder that contains the now-playing video
+              final isNowPlaying = nowPlayingPath != null &&
+                  nowPlayingPath.startsWith(folder.path);
               return _FolderCard(
                 folder: folder,
                 isExternal: isExternal,
+                isNowPlaying: isNowPlaying,
                 resume: resume,
                 onTap: () => _openFolder(folder),
                 onResume: resume != null
@@ -207,6 +243,7 @@ class _FolderResume {
 class _FolderCard extends StatelessWidget {
   final VideoFolder folder;
   final bool isExternal;
+  final bool isNowPlaying;
   final _FolderResume? resume;
   final VoidCallback onTap;
   final VoidCallback? onResume;
@@ -214,6 +251,7 @@ class _FolderCard extends StatelessWidget {
   const _FolderCard({
     required this.folder,
     required this.isExternal,
+    required this.isNowPlaying,
     required this.onTap,
     this.resume,
     this.onResume,
@@ -224,110 +262,160 @@ class _FolderCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: AppColors.surface,
+        // FIX #11: subtle highlight for the now-playing folder
+        color: isNowPlaying ? AppColors.accentSoft : AppColors.surface,
         borderRadius: AppRadius.md,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           splashColor: AppColors.accentSoft,
           highlightColor: Colors.transparent,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                // Folder icon container
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: isExternal
-                        ? const Color(0xFF0F2020)
-                        : AppColors.folderTint,
-                    borderRadius: AppRadius.sm,
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Icon(
-                        Icons.folder_rounded,
-                        size: 26,
-                        color: isExternal
-                            ? const Color(0xFF40AAAA)
-                            : AppColors.folderIcon,
-                      ),
-                      if (isExternal)
-                        const Positioned(
-                          right: 4,
-                          bottom: 4,
-                          child: Icon(Icons.sd_card_rounded,
-                              size: 10,
-                              color: Color(0xFF40AAAA)),
+          child: Container(
+            // FIX #11: accent left border when now playing
+            decoration: isNowPlaying
+                ? const BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: AppColors.accent, width: 3),
+                    ),
+                  )
+                : null,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                  isNowPlaying ? 13 : 16, 14, 16, 14),
+              child: Row(
+                children: [
+                  // Folder icon container
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: isExternal
+                          ? const Color(0xFF0F2020)
+                          : AppColors.folderTint,
+                      borderRadius: AppRadius.sm,
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Icon(
+                          Icons.folder_rounded,
+                          size: 26,
+                          color: isExternal
+                              ? const Color(0xFF40AAAA)
+                              : AppColors.folderIcon,
                         ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 14),
-
-                // Name + count
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        folder.name,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textPrimary,
-                          letterSpacing: -0.2,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 3),
-                      Row(
-                        children: [
-                          Text(
-                            '${folder.videoCount} '
-                            'video${folder.videoCount == 1 ? '' : 's'}',
-                            style: AppTextStyles.bodySmall,
+                        if (isExternal)
+                          const Positioned(
+                            right: 4,
+                            bottom: 4,
+                            child: Icon(Icons.sd_card_rounded,
+                                size: 10, color: Color(0xFF40AAAA)),
                           ),
-                          if (isExternal) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF0A2020),
-                                borderRadius: AppRadius.xs,
-                              ),
-                              child: const Text('SD',
-                                  style: TextStyle(
-                                      fontSize: 9,
-                                      color: Color(0xFF40AAAA),
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.5)),
+                        // FIX #11: pulsing play icon overlay when now playing
+                        if (isNowPlaying)
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.accent.withValues(alpha: 0.85),
+                              borderRadius: AppRadius.sm,
                             ),
+                            child: const Icon(
+                              Icons.equalizer_rounded,
+                              size: 22,
+                              color: Colors.black,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                folder.name,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w500,
+                                  color: isNowPlaying
+                                      ? AppColors.accent
+                                      : AppColors.textPrimary,
+                                  letterSpacing: -0.2,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            // FIX #11: "Now Playing" label
+                            if (isNowPlaying) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.accent,
+                                  borderRadius: AppRadius.xs,
+                                ),
+                                child: const Text(
+                                  'NOW PLAYING',
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.black,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
-                      ),
-                    ],
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            Text(
+                              '${folder.videoCount} '
+                              'video${folder.videoCount == 1 ? '' : 's'}',
+                              style: AppTextStyles.bodySmall,
+                            ),
+                            if (isExternal) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF0A2020),
+                                  borderRadius: AppRadius.xs,
+                                ),
+                                child: const Text('SD',
+                                    style: TextStyle(
+                                        fontSize: 9,
+                                        color: Color(0xFF40AAAA),
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.5)),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
 
-                // Resume pill
-                if (onResume != null && resume != null) ...[
-                  _ResumePill(
-                    position: resume!.position,
-                    onTap: onResume!,
-                  ),
-                  const SizedBox(width: 10),
+                  if (onResume != null && resume != null) ...[
+                    _ResumePill(
+                      position: resume!.position,
+                      onTap: onResume!,
+                    ),
+                    const SizedBox(width: 10),
+                  ],
+
+                  const Icon(Icons.chevron_right_rounded,
+                      size: 18, color: AppColors.textMuted),
                 ],
-
-                const Icon(Icons.chevron_right_rounded,
-                    size: 18, color: AppColors.textMuted),
-              ],
+              ),
             ),
           ),
         ),
@@ -336,7 +424,7 @@ class _FolderCard extends StatelessWidget {
   }
 }
 
-// ── Resume pill inside folder card ───────────────────────────────────────────
+// ── Resume pill ───────────────────────────────────────────────────────────────
 
 class _ResumePill extends StatelessWidget {
   final Duration position;
@@ -406,8 +494,7 @@ class _LibraryHeader extends StatelessWidget {
           ),
           if (storageCount != null) ...[
             const SizedBox(width: 8),
-            Text('· $storageCount storages',
-                style: AppTextStyles.caption),
+            Text('· $storageCount storages', style: AppTextStyles.caption),
           ],
           const Spacer(),
           if (isScanning)
@@ -456,8 +543,7 @@ class _PermissionPrompt extends StatelessWidget {
 class _ScanningScreen extends StatelessWidget {
   final int progress;
   final int storageCount;
-  const _ScanningScreen(
-      {required this.progress, required this.storageCount});
+  const _ScanningScreen({required this.progress, required this.storageCount});
 
   @override
   Widget build(BuildContext context) {
@@ -478,8 +564,7 @@ class _ScanningScreen extends StatelessWidget {
           Text('$progress videos found', style: AppTextStyles.caption),
           if (storageCount > 1) ...[
             const SizedBox(height: 4),
-            Text('$storageCount storages',
-                style: AppTextStyles.caption),
+            Text('$storageCount storages', style: AppTextStyles.caption),
           ],
         ],
       ),
@@ -564,10 +649,9 @@ class _PrimaryButton extends StatelessWidget {
         backgroundColor: AppColors.accent,
         foregroundColor: Colors.white,
         shape: const StadiumBorder(),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
-        textStyle: const TextStyle(
-            fontSize: 14, fontWeight: FontWeight.w600),
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+        textStyle:
+            const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
       ),
       child: Text(label),
     );
