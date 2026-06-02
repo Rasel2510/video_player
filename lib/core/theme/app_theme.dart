@@ -23,8 +23,8 @@ abstract final class AppColors {
   static const textDim       = Color(0xFF2E2E34);
 
   // Semantic
-  static const folderTint = Color(0xFF3A3A20);
-  static const folderIcon = Color(0xFFB8A040);
+  static const folderTint = Color(0xFF2A1020);
+  static const folderIcon = Color(0xFFFF6B8E);
   static const errorRed   = Color(0xFFFF5C5C);
   static const errorBg    = Color(0xFF2A1010);
 

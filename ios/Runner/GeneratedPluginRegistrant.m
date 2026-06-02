@@ -12,6 +12,12 @@
 @import file_picker;
 #endif
 
+#if __has_include(<flutter_native_splash/FlutterNativeSplashPlugin.h>)
+#import <flutter_native_splash/FlutterNativeSplashPlugin.h>
+#else
+@import flutter_native_splash;
+#endif
+
 #if __has_include(<media_kit_libs_ios_video/MediaKitLibsIosVideoPlugin.h>)
 #import <media_kit_libs_ios_video/MediaKitLibsIosVideoPlugin.h>
 #else
@@ -70,6 +76,7 @@
 
 + (void)registerWithRegistry:(NSObject<FlutterPluginRegistry>*)registry {
   [FilePickerPlugin registerWithRegistrar:[registry registrarForPlugin:@"FilePickerPlugin"]];
+  [FlutterNativeSplashPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterNativeSplashPlugin"]];
   [MediaKitLibsIosVideoPlugin registerWithRegistrar:[registry registrarForPlugin:@"MediaKitLibsIosVideoPlugin"]];
   [MediaKitVideoPlugin registerWithRegistrar:[registry registrarForPlugin:@"MediaKitVideoPlugin"]];
   [FPPPackageInfoPlusPlugin registerWithRegistrar:[registry registrarForPlugin:@"FPPPackageInfoPlusPlugin"]];
