@@ -360,57 +360,60 @@ class _SwipeHud extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isBrightness = gesture == SwipeGesture.brightness;
-    final icon = isBrightness
-        ? (value > 0.5 ? Icons.brightness_high : Icons.brightness_low)
-        : (value > 0.5 ? Icons.volume_up : Icons.volume_down);
-    final label = isBrightness ? 'BRIGHTNESS' : 'VOLUME';
+
+    // Choose icon based on level
+    final IconData icon;
+    if (isBrightness) {
+      icon = value > 0.6
+          ? Icons.brightness_high_rounded
+          : value > 0.3
+              ? Icons.brightness_medium_rounded
+              : Icons.brightness_low_rounded;
+    } else {
+      icon = value > 0.6
+          ? Icons.volume_up_rounded
+          : value > 0.0
+              ? Icons.volume_down_rounded
+              : Icons.volume_off_rounded;
+    }
+
     final color = isBrightness
         ? const Color(0xFFFFE066)
         : const Color(0xFF66AAFF);
-    final pct = (value * 100).round();
 
     return Align(
-      alignment:
-          isBrightness ? Alignment.centerLeft : Alignment.centerRight,
+      alignment: isBrightness ? Alignment.centerLeft : Alignment.centerRight,
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        width: 44,
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 14),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.70),
-          borderRadius: BorderRadius.circular(12),
+          color: Colors.black.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.10), width: 1),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 24),
+            Icon(icon, color: color, size: 20),
             const SizedBox(height: 10),
+            // Vertical bar — fixed height pill, consistent between both
             SizedBox(
-              width: 6,
-              height: 100,
-              child: RotatedBox(
-                quarterTurns: -1,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(3),
+              width: 4,
+              height: 90,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: RotatedBox(
+                  quarterTurns: -1,
                   child: LinearProgressIndicator(
                     value: value.clamp(0.0, 1.0),
-                    backgroundColor: Colors.white24,
+                    backgroundColor: Colors.white.withValues(alpha: 0.18),
                     valueColor: AlwaysStoppedAnimation(color),
+                    minHeight: 4,
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 10),
-            Text('$pct%',
-                style: TextStyle(
-                    color: color,
-                    fontSize: 11,
-                    fontFamily: 'monospace')),
-            const SizedBox(height: 2),
-            Text(label,
-                style: const TextStyle(
-                    color: Colors.white54,
-                    fontSize: 8,
-                    letterSpacing: 1)),
           ],
         ),
       ),

@@ -34,6 +34,9 @@ dependencies:
   # Screen brightness control for swipe gesture
   screen_brightness: ^0.2.2+1
 
+  # Device system volume control for swipe gesture
+  flutter_volume_controller: ^1.0.7
+
   # Utilities
   path: ^1.9.0
   wakelock_plus: ^1.2.1

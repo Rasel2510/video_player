@@ -22,13 +22,8 @@ class MainActivity : FlutterActivity() {
     private val NOTIFICATION_CHANNEL_ID = "nova_player_playback"
 
     private var mediaSession: MediaSessionCompat? = null
-
-    // FIX: Hold a single reusable MethodChannel reference instead of creating
-    // a new instance on every callback. Creating a new MethodChannel each time
-    // bypasses the registered handler on the Flutter side, causing crashes.
     private var methodChannel: MethodChannel? = null
 
-    // Mirror of Flutter-side playback state so we can rebuild the notification
     private var isPlaying = false
     private var videoTitle = "Nova Player"
 
@@ -38,7 +33,6 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         createNotificationChannel()
 
-        // FIX: Store the channel reference so dispatchToFlutter reuses it.
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
 
         methodChannel!!.setMethodCallHandler { call, result ->
@@ -103,7 +97,7 @@ class MainActivity : FlutterActivity() {
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
                 "Nova Player",
-                NotificationManager.IMPORTANCE_LOW   // silent — no sound/vibration
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Media playback controls"
                 setShowBadge(false)
@@ -117,46 +111,79 @@ class MainActivity : FlutterActivity() {
     private fun postNotification() {
         val session = mediaSession ?: return
 
-        val immutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-            PendingIntent.FLAG_IMMUTABLE else 0
+        try {
+            val immutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                PendingIntent.FLAG_IMMUTABLE else 0
 
-        val openAppIntent = packageManager.getLaunchIntentForPackage(packageName)
-        val contentPi = PendingIntent.getActivity(
-            this, 0, openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag
-        )
+            // FIX: getLaunchIntentForPackage() can return null on some devices.
+            // Fall back to an explicit MainActivity intent to prevent NPE.
+            val openAppIntent = packageManager.getLaunchIntentForPackage(packageName)
+                ?: Intent(this, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
 
-        val prevPi = MediaButtonReceiver.buildMediaButtonPendingIntent(
-            this, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
-        val playPausePi = MediaButtonReceiver.buildMediaButtonPendingIntent(
-            this, PlaybackStateCompat.ACTION_PLAY_PAUSE)
-        val nextPi = MediaButtonReceiver.buildMediaButtonPendingIntent(
-            this, PlaybackStateCompat.ACTION_SKIP_TO_NEXT)
-
-        val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause
-                            else          android.R.drawable.ic_media_play
-        val playPauseLabel = if (isPlaying) "Pause" else "Play"
-
-        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(videoTitle)
-            .setContentText(if (isPlaying) "Playing" else "Paused")
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentIntent(contentPi)
-            .setOngoing(isPlaying)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setSilent(true)
-            .addAction(android.R.drawable.ic_media_previous, "Previous", prevPi)
-            .addAction(playPauseIcon, playPauseLabel, playPausePi)
-            .addAction(android.R.drawable.ic_media_next, "Next", nextPi)
-            .setStyle(
-                MediaStyle()
-                    .setMediaSession(session.sessionToken)
-                    .setShowActionsInCompactView(0, 1, 2)
+            val contentPi = PendingIntent.getActivity(
+                this, 0, openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag
             )
-            .build()
 
-        notificationManager().notify(NOTIFICATION_ID, notification)
+            // FIX: Build media button PendingIntents manually with correct flags
+            // to avoid the FLAG_IMMUTABLE/FLAG_MUTABLE crash on Android 12+.
+            val prevPi = buildMediaButtonIntent(
+                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS, 1)
+            val playPausePi = buildMediaButtonIntent(
+                PlaybackStateCompat.ACTION_PLAY_PAUSE, 2)
+            val nextPi = buildMediaButtonIntent(
+                PlaybackStateCompat.ACTION_SKIP_TO_NEXT, 3)
+
+            val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause
+                                else          android.R.drawable.ic_media_play
+            val playPauseLabel = if (isPlaying) "Pause" else "Play"
+
+            val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+                .setContentTitle(videoTitle)
+                .setContentText(if (isPlaying) "Playing" else "Paused")
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setContentIntent(contentPi)
+                .setOngoing(isPlaying)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setSilent(true)
+                .addAction(android.R.drawable.ic_media_previous, "Previous", prevPi)
+                .addAction(playPauseIcon, playPauseLabel, playPausePi)
+                .addAction(android.R.drawable.ic_media_next, "Next", nextPi)
+                .setStyle(
+                    MediaStyle()
+                        .setMediaSession(session.sessionToken)
+                        .setShowActionsInCompactView(0, 1, 2)
+                )
+                .build()
+
+            notificationManager().notify(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            // Swallow notification posting failures — they must never crash the app.
+        }
+    }
+
+    // FIX: Build media button broadcast PendingIntents with explicit mutable/immutable
+    // flags (required on Android 12+ / API 31+). Using MediaButtonReceiver helper
+    // with older androidx.media could omit these flags and throw IllegalArgumentException.
+    private fun buildMediaButtonIntent(action: Long, requestCode: Int): PendingIntent {
+        val keyEvent = android.view.KeyEvent(
+            android.view.KeyEvent.ACTION_DOWN,
+            PlaybackStateCompat.toKeyCode(action).let {
+                if (it == android.view.KeyEvent.KEYCODE_UNKNOWN)
+                    android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                else it
+            }
+        )
+        val intent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+            setClass(this@MainActivity, androidx.media.session.MediaButtonReceiver::class.java)
+            putExtra(Intent.EXTRA_KEY_EVENT, keyEvent)
+        }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        return PendingIntent.getBroadcast(this, requestCode, intent, flags)
     }
 
     private fun cancelNotification() {
@@ -170,7 +197,12 @@ class MainActivity : FlutterActivity() {
 
         val immutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             PendingIntent.FLAG_IMMUTABLE else 0
+
+        // FIX: null-safe launch intent fallback
         val openAppIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
         val sessionActivityPi = PendingIntent.getActivity(
             this, 0, openAppIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag
@@ -188,9 +220,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // FIX: Use the stored methodChannel reference. This ensures callbacks go
-    // through the same channel that has the Flutter handler registered, preventing
-    // the crash caused by creating a new MethodChannel instance each time.
     private fun dispatchToFlutter(action: String) {
         try {
             methodChannel?.invokeMethod("onMediaAction", action)

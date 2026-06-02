@@ -1,28 +1,36 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 
-/// Persists and restores the user's preferred video player volume.
+/// Controls and reads the device system volume (media stream).
+/// Volume is in 0.0–1.0 range.
 class VolumeService {
   VolumeService._();
   static final instance = VolumeService._();
 
-  static const _key = 'player_volume';
-  static const double defaultVolume = 100.0;
-
-  /// Loads the persisted volume, defaulting to 100.0 if not set.
-  Future<double> getVolume() async {
+  /// Gets the current device system volume (0.0 – 1.0).
+  Future<double> getDeviceVolume() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getDouble(_key) ?? defaultVolume;
+      final vol = await FlutterVolumeController.getVolume();
+      return (vol ?? 1.0).clamp(0.0, 1.0);
     } catch (_) {
-      return defaultVolume;
+      return 1.0;
     }
   }
 
-  /// Saves the current volume to SharedPreferences.
-  Future<void> saveVolume(double volume) async {
+  /// Sets the device system volume (0.0 – 1.0).
+  Future<void> setDeviceVolume(double volume) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setDouble(_key, volume);
+      await FlutterVolumeController.setVolume(volume.clamp(0.0, 1.0));
     } catch (_) {}
+  }
+
+  /// Listens to device volume changes, calling [onChanged] with 0.0–1.0 value.
+  void addListener(void Function(double) onChanged) {
+    FlutterVolumeController.addListener((vol) {
+      onChanged(vol.clamp(0.0, 1.0));
+    });
+  }
+
+  void removeListener() {
+    FlutterVolumeController.removeListener();
   }
 }
