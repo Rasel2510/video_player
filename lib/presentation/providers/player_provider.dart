@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import '../../core/constants.dart';
 import '../../models/video_file.dart';
 import '../../services/duration_cache_service.dart';
 import '../../services/media_session_service.dart';
@@ -153,8 +154,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
   double _savedBrightness = 0.5;
   final List<StreamSubscription> _subs = [];
 
-  static const _mediaChannel =
-      MethodChannel('com.example.flutter_video_player/media_session');
+  // Guards against notification panel callbacks after dispose begins.
+  bool _isDisposing = false;
+
+  // FIX #14: use shared constant — single source of truth for channel name
+  static const _mediaChannel = MethodChannel(AppConstants.mediaSessionChannel);
 
   @override
   PlayerState build() => const PlayerState();
@@ -170,6 +174,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     List<VideoFile> folderVideos = const [],
     int initialIndex = -1,
   }) async {
+    _isDisposing = false;
     final savedVolume = await VolumeService.instance.getVolume();
     state = PlayerState(
       folderVideos: folderVideos,
@@ -183,8 +188,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _player = Player();
     _videoController = VideoController(_player!);
 
-    // Lock screen — receive media button callbacks from Android
+    // Register handler once. Guards against _isDisposing before touching player.
     _mediaChannel.setMethodCallHandler((call) async {
+      if (_isDisposing || _player == null) return;
       switch (call.method) {
         case 'onMediaAction':
           switch (call.arguments as String) {
@@ -207,7 +213,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
       }
     });
 
-    // Setup brightness
     try {
       _savedBrightness = await ScreenBrightness().current;
       final saved = await BrightnessService.instance.getBrightness();
@@ -222,7 +227,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
     await _player!.setVolume(state.volume);
     await _player!.setRate(state.playbackSpeed);
 
-    // Subscribe to streams — single helper avoids duplication and duplicate listeners
     _listenStreams(onReady: () {
       state = state.copyWith(isInitialized: true);
       _startHideTimer();
@@ -236,17 +240,14 @@ class PlayerNotifier extends Notifier<PlayerState> {
     await _player!.open(Media(filePath));
     await WakelockPlus.enable();
 
-    // Seed the lock screen metadata immediately with the filename
     await MediaSessionService.setMetadata(
       title: filePath.split('/').last,
       duration: Duration.zero,
     );
   }
 
-  // ── Stream subscription helper (DRY — used by init and _switchVideo) ────────
+  // ── Stream listeners ──────────────────────────────────────────────────────
 
-  /// Subscribes to all [_player] streams.
-  /// [onReady] fires once when the first frame is ready (or after a 4 s timeout).
   void _listenStreams({required VoidCallback onReady}) {
     bool frameReady = false;
     void markReady() {
@@ -255,19 +256,14 @@ class PlayerNotifier extends Notifier<PlayerState> {
       onReady();
     }
 
-    // FIX: Single playing subscription handles both state update AND markReady.
-    // Previously there were TWO listeners on stream.playing which doubled
-    // processing and risked out-of-order state mutations.
     _subs.add(_player!.stream.playing.listen((v) {
       state = state.copyWith(isPlaying: v);
       _updateLockScreenState();
-      if (v) markReady(); // first play event = frame ready
+      if (v) markReady();
     }));
 
     _subs.add(_player!.stream.position.listen((v) {
       state = state.copyWith(position: v);
-      // Debounce: cancel the previous timer before starting a new one.
-      // This fires several times/sec so we only write to disk after a 5 s idle.
       _saveTimer?.cancel();
       _saveTimer = Timer(const Duration(seconds: 5), _savePosition);
     }));
@@ -297,16 +293,14 @@ class PlayerNotifier extends Notifier<PlayerState> {
       );
     }));
 
-    // Width stream: non-zero width means the video frame is ready.
     _subs.add(_player!.stream.width.listen((w) {
       if (w != null && w > 0) markReady();
     }));
 
-    // Safety fallback: mark ready after 4 s regardless.
     Future.delayed(const Duration(seconds: 4), markReady);
   }
 
-  // ── Lock screen helpers ───────────────────────────────────────────────────────
+  // ── Lock screen helpers ───────────────────────────────────────────────────
 
   void _setLockScreenMetadata() {
     final fileName = _currentPath?.split('/').last ?? '';
@@ -355,10 +349,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
       isSeeking: false,
     );
 
-    // Cancel all current stream subscriptions before re-subscribing.
     _disposeStreams();
 
-    // Reuse the existing Player instance — avoid creating a new one.
     _player ??= Player();
     _videoController ??= VideoController(_player!);
 
@@ -376,7 +368,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     );
   }
 
-  // ── Subtitle ────────────────────────────────────────────────────────────────
+  // ── Subtitles ──────────────────────────────────────────────────────────────
 
   void setSubtitleTrack(SubtitleTrack track) {
     _player?.setSubtitleTrack(track);
@@ -398,7 +390,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     showControls();
   }
 
-  // ── Swipe gestures ──────────────────────────────────────────────────────────
+  // ── Swipe gestures ─────────────────────────────────────────────────────────
 
   SwipeGesture startSwipe(double dx, double screenWidth) {
     final gesture =
@@ -446,26 +438,24 @@ class PlayerNotifier extends Notifier<PlayerState> {
     } catch (_) {}
   }
 
-  // ── Controls visibility ───────────────────────────────────────────────────
+  // ── Internal cleanup ───────────────────────────────────────────────────────
 
   void _disposeStreams() {
     _saveTimer?.cancel();
-    for (final s in _subs) {
-      s.cancel();
-    }
+    for (final s in _subs) s.cancel();
     _subs.clear();
   }
 
   void _disposeInternal() {
     _saveTimer?.cancel();
-    for (final s in _subs) {
-      s.cancel();
-    }
+    for (final s in _subs) s.cancel();
     _subs.clear();
     _player?.dispose();
     _player = null;
     _videoController = null;
   }
+
+  // ── Controls ───────────────────────────────────────────────────────────────
 
   void _startHideTimer() {
     _hideTimer?.cancel();
@@ -557,15 +547,28 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   Future<void> dispose() async {
+    // Set flag FIRST — prevents notification callbacks from hitting disposed player.
+    _isDisposing = true;
+
+    // Cut the channel handler immediately (sync) so no further native callbacks.
+    _mediaChannel.setMethodCallHandler(null);
+
     _hideTimer?.cancel();
     _hudTimer?.cancel();
+
+    // Pause immediately so audio stops the instant Back is pressed.
+    try { await _player?.pause(); } catch (_) {}
+
+    // FIX #10: Cancel notification FIRST, then save position.
+    // Previously release() was called last; the notification could linger
+    // for hundreds of ms while position was being written to disk.
+    await MediaSessionService.release();
+
     await _savePosition();
     _disposeInternal();
     state = const PlayerState();
-    await MediaSessionService.release();
-    try {
-      await ScreenBrightness().resetScreenBrightness();
-    } catch (_) {}
+
+    try { await ScreenBrightness().resetScreenBrightness(); } catch (_) {}
     await WakelockPlus.disable();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -573,7 +576,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    _mediaChannel.setMethodCallHandler(null);
   }
 }
 

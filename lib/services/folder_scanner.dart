@@ -70,7 +70,9 @@ class FolderScanner {
           final vf = VideoFile.fromFile(entity);
           if (vf != null) {
             out.add(vf);
-            onProgress?.call(out.length);
+            // FIX #8: only send progress every 25 files to avoid flooding
+            // the main isolate with thousands of state updates
+            if (out.length % 25 == 0) onProgress?.call(out.length);
           }
         } else if (entity is Directory) {
           await _recurse(entity, out, onProgress);
@@ -110,7 +112,11 @@ class FolderScanner {
     }
 
     final Map<String, List<VideoFile>> folderMap = {};
-    await _recurseForFolders(dir, folderMap, (count) => data.sendPort.send(count));
+    int totalFiles = 0;
+    await _recurseForFolders(dir, folderMap, (count) {
+      totalFiles = count;
+      data.sendPort.send(totalFiles);
+    });
 
     final folders = folderMap.entries.map((e) {
       final videos = e.value
@@ -143,7 +149,9 @@ class FolderScanner {
 
       if (videosInThisDir.isNotEmpty) {
         out[dir.path] = videosInThisDir;
-        onProgress?.call(out.values.fold(0, (s, v) => s + v.length));
+        final total = out.values.fold(0, (s, v) => s + v.length);
+        // FIX #8: throttle — only notify every 25 videos found
+        if (total % 25 == 0) onProgress?.call(total);
       }
 
       for (final sub in subDirs) {

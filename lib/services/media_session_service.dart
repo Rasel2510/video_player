@@ -1,11 +1,10 @@
 import 'package:flutter/services.dart';
+import '../core/constants.dart';
 
 /// Manages Android media session (lock screen controls) via platform channel.
-/// Uses MediaSessionCompat from Android's support library via a method channel.
-/// Note: For full lock screen support, `audio_service` package can be added,
-/// but this lightweight approach works for basic play/pause via system media session.
 class MediaSessionService {
-  static const _channel = MethodChannel('com.example.flutter_video_player/media_session');
+  // FIX #14: use the shared constant instead of a duplicate string literal
+  static const _channel = MethodChannel(AppConstants.mediaSessionChannel);
 
   static Future<void> setMetadata({
     required String title,

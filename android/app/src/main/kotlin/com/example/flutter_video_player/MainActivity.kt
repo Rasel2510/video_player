@@ -23,6 +23,11 @@ class MainActivity : FlutterActivity() {
 
     private var mediaSession: MediaSessionCompat? = null
 
+    // FIX: Hold a single reusable MethodChannel reference instead of creating
+    // a new instance on every callback. Creating a new MethodChannel each time
+    // bypasses the registered handler on the Flutter side, causing crashes.
+    private var methodChannel: MethodChannel? = null
+
     // Mirror of Flutter-side playback state so we can rebuild the notification
     private var isPlaying = false
     private var videoTitle = "Nova Player"
@@ -33,60 +38,62 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         createNotificationChannel()
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
+        // FIX: Store the channel reference so dispatchToFlutter reuses it.
+        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
 
-                    "setMetadata" -> {
-                        videoTitle = call.argument<String>("title")?.takeIf { it.isNotBlank() } ?: "Nova Player"
-                        val durationMs = call.argument<Int>("duration")?.toLong() ?: 0L
-                        ensureSession()
-                        mediaSession?.setMetadata(
-                            MediaMetadataCompat.Builder()
-                                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, videoTitle)
-                                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs)
-                                .build()
-                        )
-                        mediaSession?.isActive = true
-                        postNotification()
-                        result.success(null)
-                    }
+        methodChannel!!.setMethodCallHandler { call, result ->
+            when (call.method) {
 
-                    "setPlaybackState" -> {
-                        isPlaying = call.argument<Boolean>("isPlaying") ?: false
-                        val positionMs = call.argument<Int>("position")?.toLong() ?: 0L
-                        val speed = call.argument<Double>("speed")?.toFloat() ?: 1.0f
-                        val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING
-                                    else          PlaybackStateCompat.STATE_PAUSED
-                        mediaSession?.setPlaybackState(
-                            PlaybackStateCompat.Builder()
-                                .setState(state, positionMs, speed)
-                                .setActions(
-                                    PlaybackStateCompat.ACTION_PLAY              or
-                                    PlaybackStateCompat.ACTION_PAUSE             or
-                                    PlaybackStateCompat.ACTION_PLAY_PAUSE        or
-                                    PlaybackStateCompat.ACTION_SKIP_TO_NEXT      or
-                                    PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS  or
-                                    PlaybackStateCompat.ACTION_SEEK_TO
-                                )
-                                .build()
-                        )
-                        postNotification()
-                        result.success(null)
-                    }
-
-                    "release" -> {
-                        cancelNotification()
-                        mediaSession?.isActive = false
-                        mediaSession?.release()
-                        mediaSession = null
-                        isPlaying = false
-                        result.success(null)
-                    }
-
-                    else -> result.notImplemented()
+                "setMetadata" -> {
+                    videoTitle = call.argument<String>("title")?.takeIf { it.isNotBlank() } ?: "Nova Player"
+                    val durationMs = call.argument<Int>("duration")?.toLong() ?: 0L
+                    ensureSession()
+                    mediaSession?.setMetadata(
+                        MediaMetadataCompat.Builder()
+                            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, videoTitle)
+                            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs)
+                            .build()
+                    )
+                    mediaSession?.isActive = true
+                    postNotification()
+                    result.success(null)
                 }
+
+                "setPlaybackState" -> {
+                    isPlaying = call.argument<Boolean>("isPlaying") ?: false
+                    val positionMs = call.argument<Int>("position")?.toLong() ?: 0L
+                    val speed = call.argument<Double>("speed")?.toFloat() ?: 1.0f
+                    val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING
+                                else          PlaybackStateCompat.STATE_PAUSED
+                    mediaSession?.setPlaybackState(
+                        PlaybackStateCompat.Builder()
+                            .setState(state, positionMs, speed)
+                            .setActions(
+                                PlaybackStateCompat.ACTION_PLAY              or
+                                PlaybackStateCompat.ACTION_PAUSE             or
+                                PlaybackStateCompat.ACTION_PLAY_PAUSE        or
+                                PlaybackStateCompat.ACTION_SKIP_TO_NEXT      or
+                                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS  or
+                                PlaybackStateCompat.ACTION_SEEK_TO
+                            )
+                            .build()
+                    )
+                    postNotification()
+                    result.success(null)
+                }
+
+                "release" -> {
+                    cancelNotification()
+                    mediaSession?.isActive = false
+                    mediaSession?.release()
+                    mediaSession = null
+                    isPlaying = false
+                    result.success(null)
+                }
+
+                else -> result.notImplemented()
             }
+        }
     }
 
     // ── Notification channel (required on API 26+) ────────────────────────────
@@ -107,28 +114,18 @@ class MainActivity : FlutterActivity() {
 
     // ── Post / cancel media-style notification ────────────────────────────────
 
-    /**
-     * Posts (or updates) the media notification that shows playback controls
-     * on the notification panel and lock screen.
-     *
-     * Uses [MediaButtonReceiver.buildMediaButtonPendingIntent] so that button
-     * taps are routed to the active [MediaSessionCompat.Callback] — no extra
-     * BroadcastReceiver needed.
-     */
     private fun postNotification() {
         val session = mediaSession ?: return
 
         val immutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             PendingIntent.FLAG_IMMUTABLE else 0
 
-        // Tap the notification → open the app
         val openAppIntent = packageManager.getLaunchIntentForPackage(packageName)
         val contentPi = PendingIntent.getActivity(
             this, 0, openAppIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag
         )
 
-        // Action buttons via MediaButtonReceiver (routes to session callback)
         val prevPi = MediaButtonReceiver.buildMediaButtonPendingIntent(
             this, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
         val playPausePi = MediaButtonReceiver.buildMediaButtonPendingIntent(
@@ -145,19 +142,16 @@ class MainActivity : FlutterActivity() {
             .setContentText(if (isPlaying) "Playing" else "Paused")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(contentPi)
-            // ongoing=true while playing so user can't swipe away the notification
             .setOngoing(isPlaying)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setSilent(true)
-            // Three action buttons: previous | play-pause | next
             .addAction(android.R.drawable.ic_media_previous, "Previous", prevPi)
             .addAction(playPauseIcon, playPauseLabel, playPausePi)
             .addAction(android.R.drawable.ic_media_next, "Next", nextPi)
             .setStyle(
                 MediaStyle()
                     .setMediaSession(session.sessionToken)
-                    // compact view shows indices 0, 1, 2 → previous, play/pause, next
                     .setShowActionsInCompactView(0, 1, 2)
             )
             .build()
@@ -185,24 +179,31 @@ class MainActivity : FlutterActivity() {
         mediaSession = MediaSessionCompat(this, "NovaPlayer").apply {
             setSessionActivity(sessionActivityPi)
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay()             { dispatchToFlutter("play") }
-                override fun onPause()            { dispatchToFlutter("pause") }
-                override fun onSkipToNext()       { dispatchToFlutter("next") }
-                override fun onSkipToPrevious()   { dispatchToFlutter("previous") }
-                override fun onSeekTo(pos: Long)  { dispatchSeekToFlutter(pos) }
+                override fun onPlay()            { dispatchToFlutter("play") }
+                override fun onPause()           { dispatchToFlutter("pause") }
+                override fun onSkipToNext()      { dispatchToFlutter("next") }
+                override fun onSkipToPrevious()  { dispatchToFlutter("previous") }
+                override fun onSeekTo(pos: Long) { dispatchSeekToFlutter(pos) }
             })
         }
     }
 
+    // FIX: Use the stored methodChannel reference. This ensures callbacks go
+    // through the same channel that has the Flutter handler registered, preventing
+    // the crash caused by creating a new MethodChannel instance each time.
     private fun dispatchToFlutter(action: String) {
-        flutterEngine?.dartExecutor?.binaryMessenger?.let { m ->
-            MethodChannel(m, CHANNEL).invokeMethod("onMediaAction", action)
+        try {
+            methodChannel?.invokeMethod("onMediaAction", action)
+        } catch (e: Exception) {
+            // Flutter engine may have detached — swallow to prevent native crash.
         }
     }
 
     private fun dispatchSeekToFlutter(posMs: Long) {
-        flutterEngine?.dartExecutor?.binaryMessenger?.let { m ->
-            MethodChannel(m, CHANNEL).invokeMethod("onMediaSeek", posMs)
+        try {
+            methodChannel?.invokeMethod("onMediaSeek", posMs)
+        } catch (e: Exception) {
+            // Flutter engine may have detached — swallow to prevent native crash.
         }
     }
 
@@ -212,6 +213,7 @@ class MainActivity : FlutterActivity() {
         cancelNotification()
         mediaSession?.release()
         mediaSession = null
+        methodChannel = null
         super.onDestroy()
     }
 

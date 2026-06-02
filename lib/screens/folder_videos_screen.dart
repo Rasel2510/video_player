@@ -3,6 +3,7 @@ import '../core/theme/app_theme.dart';
 import '../core/utils/duration_formatter.dart';
 import '../models/video_file.dart';
 import '../models/video_folder.dart';
+import '../presentation/widgets/resume_dialog.dart';
 import '../presentation/widgets/thumbnail_widget.dart';
 import '../services/duration_cache_service.dart';
 import '../services/position_service.dart';
@@ -29,6 +30,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
   }
 
   Future<void> _loadPositions() async {
+    // FIX #7: batch all disk reads with Future.wait instead of sequential awaits
     final futures = widget.folder.videos.map((vf) async {
       final pos = await PositionService.instance.load(vf.path);
       final dur = await DurationCacheService.instance.getDuration(vf.path);
@@ -64,7 +66,8 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
       if (forceResume) {
         resumeFrom = savedPos;
       } else {
-        resumeFrom = await _showResumeDialog(savedPos);
+        // FIX #3: use shared ResumeDialog
+        resumeFrom = await ResumeDialog.show(context, savedPos);
         if (resumeFrom == null) return;
       }
     }
@@ -95,32 +98,6 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
         if (dur != null) _durations[path] = dur;
       });
     }
-  }
-
-  Future<Duration?> _showResumeDialog(Duration pos) {
-    return showDialog<Duration>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Continue watching?'),
-        content: Text('Paused at ${DurationFormatter.format(pos)}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, Duration.zero),
-            child: const Text('Start over',
-                style: TextStyle(color: AppColors.textSecondary)),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, pos),
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.accent,
-              foregroundColor: Colors.white,
-              shape: const StadiumBorder(),
-            ),
-            child: const Text('Resume'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -159,8 +136,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
             )
           : null,
       body: ListView.builder(
-        padding: EdgeInsets.fromLTRB(
-            16, 8, 16, last != null ? 96 : 16),
+        padding: EdgeInsets.fromLTRB(16, 8, 16, last != null ? 96 : 16),
         itemCount: widget.folder.videos.length,
         itemBuilder: (_, i) {
           final vf = widget.folder.videos[i];
@@ -198,8 +174,7 @@ class _VideoCard extends StatelessWidget {
     final progress = (savedPos != null &&
             totalDur != null &&
             totalDur!.inMilliseconds > 0)
-        ? (savedPos!.inMilliseconds / totalDur!.inMilliseconds)
-            .clamp(0.0, 1.0)
+        ? (savedPos!.inMilliseconds / totalDur!.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
 
     return Padding(
@@ -218,7 +193,6 @@ class _VideoCard extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
                 child: Row(
                   children: [
-                    // Thumbnail with rounded corners
                     ClipRRect(
                       borderRadius: AppRadius.sm,
                       child: VideoThumbnailWidget(
@@ -243,11 +217,9 @@ class _VideoCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 6),
                           Row(children: [
-                            _FormatBadge(
-                                vf.extension.replaceFirst('.', '')),
+                            _FormatBadge(vf.extension.replaceFirst('.', '')),
                             const SizedBox(width: 8),
-                            Text(vf.sizeLabel,
-                                style: AppTextStyles.caption),
+                            Text(vf.sizeLabel, style: AppTextStyles.caption),
                             if (savedPos != null) ...[
                               const SizedBox(width: 8),
                               Text(
@@ -269,14 +241,13 @@ class _VideoCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // Progress bar at bottom of card
               if (savedPos != null && progress > 0)
                 LinearProgressIndicator(
                   value: progress,
                   minHeight: 2,
                   backgroundColor: AppColors.progressBg,
-                  valueColor: const AlwaysStoppedAnimation(
-                      AppColors.progressFill),
+                  valueColor:
+                      const AlwaysStoppedAnimation(AppColors.progressFill),
                 ),
             ],
           ),

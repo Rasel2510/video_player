@@ -6,7 +6,6 @@ class VideoFile {
   final String name;
   final int size; // bytes
   final DateTime modified;
-  /// Cached duration (null = not yet probed). Stored via DurationCacheService.
   final Duration? duration;
 
   VideoFile({
@@ -27,10 +26,20 @@ class VideoFile {
     return '${(size / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
+  // FIX #15: Added .rmvb, .flv, .divx, .vob, .ogv, .m2v, .mxf which are
+  // common formats that were previously silently ignored during library scans.
   static bool isVideoFile(String filename) {
     const videoExts = {
+      // Common modern formats
       '.mp4', '.mkv', '.mov', '.avi', '.webm',
-      '.flv', '.wmv', '.m4v', '.3gp', '.ts', '.m2ts'
+      // Streaming / broadcast
+      '.ts', '.m2ts', '.mts',
+      // Legacy / niche
+      '.flv', '.wmv', '.m4v', '.3gp', '.3g2',
+      '.rmvb', '.rm', '.divx', '.xvid',
+      '.vob', '.ogv', '.m2v', '.mxf',
+      // Apple
+      '.m4b',
     };
     return videoExts.contains(p.extension(filename).toLowerCase());
   }

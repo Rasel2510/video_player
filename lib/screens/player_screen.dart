@@ -13,7 +13,6 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final String filePath;
   final String fileName;
   final Duration? resumeFrom;
-  /// Optional: all videos in the same folder for next/previous navigation.
   final List<VideoFile> folderVideos;
   final int initialIndex;
 
@@ -30,9 +29,24 @@ class PlayerScreen extends ConsumerStatefulWidget {
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends ConsumerState<PlayerScreen> {
+class _PlayerScreenState extends ConsumerState<PlayerScreen>
+    with SingleTickerProviderStateMixin {
   double _dragStartDx = 0;
   bool _swipeActive = false;
+
+  // FIX #9: Seek flash animation controller
+  late final AnimationController _seekFlashCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 400),
+  );
+  late final Animation<double> _seekFlashAnim = CurvedAnimation(
+    parent: _seekFlashCtrl,
+    curve: Curves.easeOut,
+  );
+
+  // FIX #9: track which side the double-tap was on
+  bool _seekFlashLeft = false;
+  bool _seekFlashRight = false;
 
   @override
   void initState() {
@@ -49,8 +63,28 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   @override
   void dispose() {
+    _seekFlashCtrl.dispose();
+    // FIX #13: Call dispose() but don't await it here (ConsumerState.dispose
+    // must be synchronous). The notifier handles its own cleanup gracefully.
+    // The critical audio-stop path (pause + channel null) is synchronous-first
+    // inside the notifier, so this is safe.
     ref.read(playerProvider.notifier).dispose();
     super.dispose();
+  }
+
+  void _triggerSeekFlash(bool isLeft) {
+    setState(() {
+      _seekFlashLeft  = isLeft;
+      _seekFlashRight = !isLeft;
+    });
+    _seekFlashCtrl.forward(from: 0).then((_) {
+      if (mounted) {
+        setState(() {
+          _seekFlashLeft  = false;
+          _seekFlashRight = false;
+        });
+      }
+    });
   }
 
   void _showSpeedSheet(BuildContext context, double currentSpeed) {
@@ -109,25 +143,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final notifier = ref.read(playerProvider.notifier);
-    final size = MediaQuery.of(context).size;
+    final size     = MediaQuery.of(context).size;
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: Consumer(
         builder: (context, ref, child) {
-          final controlsVisible = ref.watch(playerProvider.select((s) => s.controlsVisible));
+          final controlsVisible =
+              ref.watch(playerProvider.select((s) => s.controlsVisible));
           return GestureDetector(
             onTap: () {
               if (!_swipeActive) {
-                controlsVisible ? notifier.hideControls() : notifier.showControls();
+                controlsVisible
+                    ? notifier.hideControls()
+                    : notifier.showControls();
               }
             },
             onDoubleTapDown: (details) {
-              if (details.globalPosition.dx < size.width / 2) {
+              final isLeft = details.globalPosition.dx < size.width / 2;
+              if (isLeft) {
                 notifier.seekRelative(-10);
               } else {
                 notifier.seekRelative(10);
               }
+              // FIX #9: trigger the side flash
+              _triggerSeekFlash(isLeft);
             },
             onVerticalDragStart: (details) {
               _dragStartDx = details.globalPosition.dx;
@@ -150,11 +190,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         },
         child: Stack(
           children: [
-            // ── Video ──────────────────────────────────────────────────────
+            // ── Video ────────────────────────────────────────────────────
             Consumer(
               builder: (context, ref, _) {
-                final isInitialized = ref.watch(playerProvider.select((s) => s.isInitialized));
-                final fitMode = ref.watch(playerProvider.select((s) => s.fitMode));
+                final isInitialized =
+                    ref.watch(playerProvider.select((s) => s.isInitialized));
+                final fitMode =
+                    ref.watch(playerProvider.select((s) => s.fitMode));
                 if (isInitialized && notifier.videoController != null) {
                   return Positioned.fill(
                     child: Video(
@@ -168,24 +210,52 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               },
             ),
 
-            // ── Swipe HUD ──────────────────────────────────────────────────
+            // ── FIX #9: Double-tap seek flash overlays ───────────────────
+            if (_seekFlashLeft)
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: size.width / 2,
+                child: _SeekFlash(
+                  animation: _seekFlashAnim,
+                  isForward: false,
+                ),
+              ),
+            if (_seekFlashRight)
+              Positioned(
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: size.width / 2,
+                child: _SeekFlash(
+                  animation: _seekFlashAnim,
+                  isForward: true,
+                ),
+              ),
+
+            // ── Swipe HUD ────────────────────────────────────────────────
             Consumer(
               builder: (context, ref, _) {
-                final gesture = ref.watch(playerProvider.select((s) => s.swipeGesture));
-                final value   = ref.watch(playerProvider.select((s) => s.swipeValue));
+                final gesture =
+                    ref.watch(playerProvider.select((s) => s.swipeGesture));
+                final value =
+                    ref.watch(playerProvider.select((s) => s.swipeValue));
                 if (gesture == SwipeGesture.none) return const SizedBox();
                 return _SwipeHud(gesture: gesture, value: value);
               },
             ),
 
-            // ── Controls overlay ───────────────────────────────────────────
+            // ── Controls overlay ─────────────────────────────────────────
             Consumer(
               builder: (context, ref, _) {
-                final isInitialized = ref.watch(playerProvider.select((s) => s.isInitialized));
+                final isInitialized =
+                    ref.watch(playerProvider.select((s) => s.isInitialized));
                 if (!isInitialized) return const SizedBox();
-                final controlsVisible = ref.watch(playerProvider.select((s) => s.controlsVisible));
-                // Dynamically show current file name from state (changes on next/prev)
-                final currentVideo = ref.watch(playerProvider.select((s) => s.currentVideo));
+                final controlsVisible =
+                    ref.watch(playerProvider.select((s) => s.controlsVisible));
+                final currentVideo =
+                    ref.watch(playerProvider.select((s) => s.currentVideo));
                 final displayName = currentVideo?.name ?? widget.fileName;
                 return AnimatedOpacity(
                   opacity: controlsVisible ? 1.0 : 0.0,
@@ -197,10 +267,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       onBack: () => Navigator.pop(context),
                       onTogglePlay: notifier.togglePlay,
                       onCycleFitMode: notifier.cycleFitMode,
-                      onShowSpeed: () =>
-                          _showSpeedSheet(context, ref.read(playerProvider).playbackSpeed),
-                      onShowVolume: () =>
-                          _showVolumeSheet(context, ref.read(playerProvider).volume),
+                      onShowSpeed: () => _showSpeedSheet(
+                          context, ref.read(playerProvider).playbackSpeed),
+                      onShowVolume: () => _showVolumeSheet(
+                          context, ref.read(playerProvider).volume),
                       onShowAudio: () => _showAudioTrackSheet(context),
                       onShowSubtitle: () => _showSubtitleSheet(context),
                       onSeekBack: () => notifier.seekRelative(-10),
@@ -223,7 +293,63 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 }
 
-// ── Swipe HUD widget ──────────────────────────────────────────────────────────
+// ── FIX #9: Seek flash widget ─────────────────────────────────────────────────
+
+class _SeekFlash extends StatelessWidget {
+  final Animation<double> animation;
+  final bool isForward;
+
+  const _SeekFlash({required this.animation, required this.isForward});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (_, __) {
+        final opacity = (1.0 - animation.value).clamp(0.0, 1.0);
+        return IgnorePointer(
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: opacity * 0.15),
+              borderRadius: BorderRadius.horizontal(
+                left: isForward ? Radius.zero : const Radius.circular(999),
+                right: isForward ? const Radius.circular(999) : Radius.zero,
+              ),
+            ),
+            child: Center(
+              child: Opacity(
+                opacity: opacity,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isForward
+                          ? Icons.forward_10_rounded
+                          : Icons.replay_10_rounded,
+                      color: Colors.white,
+                      size: 40,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      isForward ? '+10s' : '-10s',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ── Swipe HUD ─────────────────────────────────────────────────────────────────
 
 class _SwipeHud extends StatelessWidget {
   final SwipeGesture gesture;
@@ -238,11 +364,14 @@ class _SwipeHud extends StatelessWidget {
         ? (value > 0.5 ? Icons.brightness_high : Icons.brightness_low)
         : (value > 0.5 ? Icons.volume_up : Icons.volume_down);
     final label = isBrightness ? 'BRIGHTNESS' : 'VOLUME';
-    final color = isBrightness ? const Color(0xFFFFE066) : const Color(0xFF66AAFF);
+    final color = isBrightness
+        ? const Color(0xFFFFE066)
+        : const Color(0xFF66AAFF);
     final pct = (value * 100).round();
 
     return Align(
-      alignment: isBrightness ? Alignment.centerLeft : Alignment.centerRight,
+      alignment:
+          isBrightness ? Alignment.centerLeft : Alignment.centerRight,
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 20),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -273,11 +402,15 @@ class _SwipeHud extends StatelessWidget {
             const SizedBox(height: 10),
             Text('$pct%',
                 style: TextStyle(
-                    color: color, fontSize: 11, fontFamily: 'monospace')),
+                    color: color,
+                    fontSize: 11,
+                    fontFamily: 'monospace')),
             const SizedBox(height: 2),
             Text(label,
                 style: const TextStyle(
-                    color: Colors.white54, fontSize: 8, letterSpacing: 1)),
+                    color: Colors.white54,
+                    fontSize: 8,
+                    letterSpacing: 1)),
           ],
         ),
       ),
