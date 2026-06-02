@@ -31,7 +31,7 @@ class SpeedSheet extends StatelessWidget {
               final selected = s == currentSpeed;
               final label = s == s.roundToDouble()
                   ? '${s.toInt()}×'
-                  : '${s}×';
+                  : '$s×';
               return GestureDetector(
                 onTap: () {
                   Navigator.pop(context);

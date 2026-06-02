@@ -20,8 +20,8 @@ enum FitMode { contain, cover, fill, natural }
 extension FitModeX on FitMode {
   String get label => switch (this) {
         FitMode.contain => 'FIT',
-        FitMode.cover   => 'CROP',
-        FitMode.fill    => 'FILL',
+        FitMode.cover => 'CROP',
+        FitMode.fill => 'FILL',
         FitMode.natural => 'AUTO',
       };
   FitMode get next => FitMode.values[(index + 1) % FitMode.values.length];
@@ -157,6 +157,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
   // Guards against notification panel callbacks after dispose begins.
   bool _isDisposing = false;
 
+
   // FIX #14: use shared constant — single source of truth for channel name
   static const _mediaChannel = MethodChannel(AppConstants.mediaSessionChannel);
 
@@ -175,11 +176,12 @@ class PlayerNotifier extends Notifier<PlayerState> {
     int initialIndex = -1,
   }) async {
     _isDisposing = false;
-    final savedVolume = await VolumeService.instance.getVolume();
+    // Read device system volume (0.0–1.0), store as 0–100 in state for display.
+    final deviceVol = await VolumeService.instance.getDeviceVolume();
     state = PlayerState(
       folderVideos: folderVideos,
       currentIndex: initialIndex,
-      volume: savedVolume,
+      volume: deviceVol * 100,
     );
 
     _disposeInternal();
@@ -190,26 +192,36 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     // Register handler once. Guards against _isDisposing before touching player.
     _mediaChannel.setMethodCallHandler((call) async {
+      // FIX: guard must be the very first thing — the player or its state may
+      // already be torn down by the time this callback fires from native.
       if (_isDisposing || _player == null) return;
-      switch (call.method) {
-        case 'onMediaAction':
-          switch (call.arguments as String) {
-            case 'play':
-            case 'pause':
-              togglePlay();
-              break;
-            case 'next':
-              playNext();
-              break;
-            case 'previous':
-              playPrevious();
-              break;
-          }
-          break;
-        case 'onMediaSeek':
-          final ms = call.arguments as int;
-          _player?.seek(Duration(milliseconds: ms));
-          break;
+      try {
+        switch (call.method) {
+          case 'onMediaAction':
+            // FIX: cast safely — a bad argument type must not crash the handler.
+            final action = call.arguments as String? ?? '';
+            switch (action) {
+              case 'play':
+              case 'pause':
+                togglePlay();
+                break;
+              case 'next':
+                playNext();
+                break;
+              case 'previous':
+                playPrevious();
+                break;
+            }
+            break;
+          case 'onMediaSeek':
+            final ms = call.arguments as int? ?? 0;
+            _player?.seek(Duration(milliseconds: ms));
+            break;
+        }
+      } catch (e) {
+        // Swallow any unexpected errors from notification button presses.
+        // The player may be in a transient state (loading, buffering, error)
+        // that throws internally — this must never propagate to Flutter engine.
       }
     });
 
@@ -224,8 +236,16 @@ class PlayerNotifier extends Notifier<PlayerState> {
       }
     } catch (_) {}
 
-    await _player!.setVolume(state.volume);
+    // Always run media_kit at full internal volume — device volume controls output level.
+    await _player!.setVolume(100);
     await _player!.setRate(state.playbackSpeed);
+
+    // Listen for hardware/notification-panel volume changes and keep state in sync.
+    VolumeService.instance.addListener((vol) {
+      if (!_isDisposing) {
+        state = state.copyWith(volume: vol * 100);
+      }
+    });
 
     _listenStreams(onReady: () {
       state = state.copyWith(isInitialized: true);
@@ -277,8 +297,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
       _setLockScreenMetadata();
     }));
 
-    _subs.add(
-        _player!.stream.volume.listen((v) => state = state.copyWith(volume: v)));
     _subs.add(_player!.stream.rate
         .listen((v) => state = state.copyWith(playbackSpeed: v)));
 
@@ -359,7 +377,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
       _startHideTimer();
     });
 
-    await _player!.setVolume(state.volume);
+    await _player!.setVolume(100);
     await _player!.open(Media(filePath));
 
     await MediaSessionService.setMetadata(
@@ -372,7 +390,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void setSubtitleTrack(SubtitleTrack track) {
     _player?.setSubtitleTrack(track);
-    state = state.copyWith(selectedSubtitleTrack: track, subtitlesEnabled: true);
+    state =
+        state.copyWith(selectedSubtitleTrack: track, subtitlesEnabled: true);
     showControls();
   }
 
@@ -414,7 +433,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
           state.copyWith(brightness: newBrightness, swipeValue: newBrightness);
     } else {
       final newVol = ((state.volume / 100.0) + delta).clamp(0.0, 1.0);
-      _player?.setVolume(newVol * 100);
+      VolumeService.instance.setDeviceVolume(newVol);
       state = state.copyWith(volume: newVol * 100, swipeValue: newVol);
     }
   }
@@ -425,11 +444,10 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _hudTimer = Timer(const Duration(milliseconds: 1500), () {
       state = state.copyWith(swipeGesture: SwipeGesture.none);
     });
-    if (gesture == SwipeGesture.volume) {
-      VolumeService.instance.saveVolume(state.volume);
-    } else if (gesture == SwipeGesture.brightness) {
+    if (gesture == SwipeGesture.brightness) {
       BrightnessService.instance.saveBrightness(state.brightness);
     }
+    // Device volume persists on the OS side; no need to save it ourselves.
   }
 
   Future<void> _applyBrightness(double value) async {
@@ -442,13 +460,17 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void _disposeStreams() {
     _saveTimer?.cancel();
-    for (final s in _subs) s.cancel();
+    for (final s in _subs) {
+      s.cancel();
+    }
     _subs.clear();
   }
 
   void _disposeInternal() {
     _saveTimer?.cancel();
-    for (final s in _subs) s.cancel();
+    for (final s in _subs) {
+      s.cancel();
+    }
     _subs.clear();
     _player?.dispose();
     _player = null;
@@ -475,7 +497,14 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void togglePlay() {
-    _player?.playOrPause();
+    // FIX: guard against calls arriving after dispose() begins (e.g. from the
+    // notification panel handler firing just as the player screen is closing).
+    if (_isDisposing || _player == null) return;
+    try {
+      _player?.playOrPause();
+    } catch (_) {
+      // Swallow — player may be in a transient state (loading/error).
+    }
     showControls();
   }
 
@@ -504,9 +533,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void setVolume(double volume) {
-    _player?.setVolume(volume);
+    // volume is 0–100; convert to 0.0–1.0 for device system volume.
+    VolumeService.instance.setDeviceVolume(volume / 100.0);
     state = state.copyWith(volume: volume);
-    VolumeService.instance.saveVolume(volume);
   }
 
   void setSpeed(double speed) {
@@ -553,11 +582,16 @@ class PlayerNotifier extends Notifier<PlayerState> {
     // Cut the channel handler immediately (sync) so no further native callbacks.
     _mediaChannel.setMethodCallHandler(null);
 
+    // Remove device volume listener.
+    VolumeService.instance.removeListener();
+
     _hideTimer?.cancel();
     _hudTimer?.cancel();
 
     // Pause immediately so audio stops the instant Back is pressed.
-    try { await _player?.pause(); } catch (_) {}
+    try {
+      await _player?.pause();
+    } catch (_) {}
 
     // FIX #10: Cancel notification FIRST, then save position.
     // Previously release() was called last; the notification could linger
@@ -568,7 +602,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _disposeInternal();
     state = const PlayerState();
 
-    try { await ScreenBrightness().resetScreenBrightness(); } catch (_) {}
+    try {
+      await ScreenBrightness().resetScreenBrightness();
+    } catch (_) {}
     await WakelockPlus.disable();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,

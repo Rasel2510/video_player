@@ -151,7 +151,7 @@ class _TopBar extends ConsumerWidget {
 
     final speedLabel = speed == speed.roundToDouble()
         ? '${speed.toInt()}×'
-        : '${speed}×';
+        : '$speed×';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
@@ -296,8 +296,8 @@ class _PlayButton extends StatelessWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
           child: Container(
-            width: 72,
-            height: 72,
+            width: 54,
+            height: 54,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _kBlack70,
@@ -305,7 +305,7 @@ class _PlayButton extends StatelessWidget {
             ),
             child: Icon(
               isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              size: 38,
+              size: 28,
               color: _kWhite100,
             ),
           ),

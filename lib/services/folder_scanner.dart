@@ -14,7 +14,7 @@ class FolderScanner {
       for (final entity in dir.listSync(followLinks: false)) {
         if (entity is File && VideoFile.isVideoFile(entity.path)) {
           final vf = VideoFile.fromFile(entity);
-          if (vf != null) files.add(vf);
+          if (vf != null && vf.size >= 1024) files.add(vf);
         }
       }
     } catch (_) {}
@@ -68,7 +68,7 @@ class FolderScanner {
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is File && VideoFile.isVideoFile(entity.path)) {
           final vf = VideoFile.fromFile(entity);
-          if (vf != null) {
+          if (vf != null && vf.size >= 1024) {
             out.add(vf);
             // FIX #8: only send progress every 25 files to avoid flooding
             // the main isolate with thousands of state updates
@@ -140,7 +140,7 @@ class FolderScanner {
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is File && VideoFile.isVideoFile(entity.path)) {
           final vf = VideoFile.fromFile(entity);
-          if (vf != null) videosInThisDir.add(vf);
+          if (vf != null && vf.size >= 1024) videosInThisDir.add(vf);
         } else if (entity is Directory) {
           final name = entity.path.split(Platform.pathSeparator).last;
           if (!name.startsWith('.')) subDirs.add(entity);
@@ -177,7 +177,7 @@ class FolderScanner {
           if (!name.startsWith('.')) dirs.add(entity);
         } else if (entity is File && VideoFile.isVideoFile(entity.path)) {
           final vf = VideoFile.fromFile(entity);
-          if (vf != null) videos.add(vf);
+          if (vf != null && vf.size >= 1024) videos.add(vf);
         }
       }
     } catch (_) {}

@@ -6,7 +6,6 @@ import '../core/utils/duration_formatter.dart';
 import '../models/video_file.dart';
 import '../models/video_folder.dart';
 import '../presentation/providers/folders_provider.dart';
-import '../presentation/providers/player_provider.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
 import 'folder_videos_screen.dart';
@@ -24,11 +23,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   bool _permissionGranted = false;
   bool _checkingPermission = true;
-  final Map<String, _FolderResume?> _folderResumes = {};
 
-  // FIX #2: Track the last folder list we loaded resumes for, so we only
-  // trigger _loadFolderResumes when the folder list actually changes — not
-  // on every Riverpod rebuild (e.g. scan progress ticks).
+  // Whether we sent the user to the system Settings for manageExternalStorage.
+  // Used to distinguish "returned from Settings" from normal app resume so we
+  // can silently re-check status without showing dialogs again.
+  bool _awaitingStorageSettings = false;
+
+  final Map<String, _FolderResume?> _folderResumes = {};
   List<VideoFolder>? _lastFoldersLoaded;
 
   @override
@@ -49,20 +50,88 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
-    if (lifecycle == AppLifecycleState.resumed && _permissionGranted) {
+    if (lifecycle != AppLifecycleState.resumed) return;
+
+    if (_permissionGranted) {
+      // Already have permission — trigger a background content check.
+      ref.read(foldersProvider.notifier).load(forceScan: false);
+    } else if (_awaitingStorageSettings) {
+      // FIX: User may have just returned from the system "All files access"
+      // Settings page. Re-check permission status silently (no new dialogs).
+      _awaitingStorageSettings = false;
+      _recheckPermissionsAfterSettings();
+    }
+  }
+
+  // ── Permission helpers ────────────────────────────────────────────────────
+
+  /// FIX: Request permissions SEQUENTIALLY, not all at once with Future.wait.
+  ///
+  /// The old code used Future.wait([manageExternal, storage, videos]) which
+  /// caused two problems:
+  ///   1. manageExternalStorage on Android 11+ redirects to the system Settings
+  ///      screen, backgrounding the app while storage/videos dialogs are still
+  ///      pending. On return, all three "complete" (often as denied) because the
+  ///      OS dismissed the dialogs. The result: _permissionGranted stays false
+  ///      and the permission prompt appears again on every launch.
+  ///   2. POST_NOTIFICATIONS (Android 13+) was never requested, so the media
+  ///      notification silently never appeared.
+  ///
+  /// Fix: ask inline-dialog permissions first, then the Settings-redirect one.
+  Future<void> _checkPermissionsAndLoad() async {
+    setState(() => _checkingPermission = true);
+
+    // Step 1 — inline dialog permissions (these don't leave the app).
+    // videos = READ_MEDIA_VIDEO on API 33+; storage = READ_EXTERNAL_STORAGE.
+    await Permission.videos.request();
+    if (!mounted) return;
+    await Permission.storage.request();
+    if (!mounted) return;
+
+    // Step 2 — notification permission for the media playback notification
+    // (Android 13+ / API 33+). Silently ignored on older versions.
+    await Permission.notification.request();
+    if (!mounted) return;
+
+    // Step 3 — MANAGE_EXTERNAL_STORAGE (Android 11+ only). This opens the
+    // system "All files access" page; the app goes to background. Set the flag
+    // so didChangeAppLifecycleState knows to re-check on return.
+    final manageStatus = await Permission.manageExternalStorage.status;
+    if (!manageStatus.isGranted) {
+      _awaitingStorageSettings = true;
+      await Permission.manageExternalStorage.request();
+      if (!mounted) return;
+      _awaitingStorageSettings = false;
+    }
+
+    await _applyPermissionResult();
+  }
+
+  /// Silent re-check used when returning from the system Settings page.
+  /// Does NOT show any permission dialogs — only reads current status.
+  Future<void> _recheckPermissionsAfterSettings() async {
+    if (_checkingPermission) return; // already in a permission flow
+    final results = await Future.wait([
+      Permission.manageExternalStorage.isGranted,
+      Permission.storage.isGranted,
+      Permission.videos.isGranted,
+    ]);
+    if (!mounted) return;
+    final granted = results.any((g) => g);
+    if (granted && !_permissionGranted) {
+      setState(() => _permissionGranted = true);
       ref.read(foldersProvider.notifier).load(forceScan: false);
     }
   }
 
-  Future<void> _checkPermissionsAndLoad() async {
-    setState(() => _checkingPermission = true);
+  Future<void> _applyPermissionResult() async {
     final results = await Future.wait([
-      Permission.manageExternalStorage.request(),
-      Permission.storage.request(),
-      Permission.videos.request(),
+      Permission.manageExternalStorage.isGranted,
+      Permission.storage.isGranted,
+      Permission.videos.isGranted,
     ]);
-    final granted = results.any((s) => s.isGranted);
     if (!mounted) return;
+    final granted = results.any((g) => g);
     setState(() {
       _permissionGranted = granted;
       _checkingPermission = false;
@@ -70,8 +139,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (granted) ref.read(foldersProvider.notifier).load(forceScan: false);
   }
 
-  // FIX #2: Only called when folders list identity changes, not on every build.
-  // FIX #7 (already applied in folder_videos_screen): batch with Future.wait.
+  // ── Folder resume helpers ─────────────────────────────────────────────────
+
   Future<void> _loadFolderResumes(List<VideoFolder> folders) async {
     final futures = folders
         .where((f) => !_folderResumes.containsKey(f.path))
@@ -90,7 +159,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   Future<_FolderResume?> _findLastWatched(VideoFolder folder) async {
-    // Batch all position reads for this folder simultaneously
     final futures = folder.videos.map((vf) async {
       final pos = await PositionService.instance.load(vf.path);
       return (vf, pos);
@@ -174,20 +242,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     final folders = state.folders;
     final hasMultiStorage = state.storageRoots.length > 1;
 
-    // FIX #2: Only trigger resume loading when the folder list object changes.
-    // Previously this was called unconditionally inside build(), causing
-    // redundant async work on every Riverpod state update.
     if (!identical(_lastFoldersLoaded, folders)) {
       _lastFoldersLoaded = folders;
-      // Schedule after the current frame so we don't call setState during build
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _loadFolderResumes(folders);
       });
     }
-
-    // FIX #11: watch the player to show "now playing" indicator
-    final nowPlayingPath = ref.watch(
-        playerProvider.select((s) => s.currentVideo?.path));
 
     return Column(
       children: [
@@ -209,13 +269,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               final resume = _folderResumes[folder.path];
               final isExternal =
                   hasMultiStorage && !folder.path.contains('/emulated/');
-              // FIX #11: highlight the folder that contains the now-playing video
-              final isNowPlaying = nowPlayingPath != null &&
-                  nowPlayingPath.startsWith(folder.path);
               return _FolderCard(
                 folder: folder,
                 isExternal: isExternal,
-                isNowPlaying: isNowPlaying,
                 resume: resume,
                 onTap: () => _openFolder(folder),
                 onResume: resume != null
@@ -243,7 +299,9 @@ class _FolderResume {
 class _FolderCard extends StatelessWidget {
   final VideoFolder folder;
   final bool isExternal;
-  final bool isNowPlaying;
+  // FIX: Removed isNowPlaying — the "NOW PLAYING" overlay on folder cards
+  // was unwanted (user request) and also caused unnecessary Riverpod rebuilds
+  // of the entire folder list on every player state change.
   final _FolderResume? resume;
   final VoidCallback onTap;
   final VoidCallback? onResume;
@@ -251,7 +309,6 @@ class _FolderCard extends StatelessWidget {
   const _FolderCard({
     required this.folder,
     required this.isExternal,
-    required this.isNowPlaying,
     required this.onTap,
     this.resume,
     this.onResume,
@@ -262,160 +319,106 @@ class _FolderCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        // FIX #11: subtle highlight for the now-playing folder
-        color: isNowPlaying ? AppColors.accentSoft : AppColors.surface,
+        color: AppColors.surface,
         borderRadius: AppRadius.md,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           splashColor: AppColors.accentSoft,
           highlightColor: Colors.transparent,
-          child: Container(
-            // FIX #11: accent left border when now playing
-            decoration: isNowPlaying
-                ? const BoxDecoration(
-                    border: Border(
-                      left: BorderSide(color: AppColors.accent, width: 3),
-                    ),
-                  )
-                : null,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                  isNowPlaying ? 13 : 16, 14, 16, 14),
-              child: Row(
-                children: [
-                  // Folder icon container
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: isExternal
-                          ? const Color(0xFF0F2020)
-                          : AppColors.folderTint,
-                      borderRadius: AppRadius.sm,
-                    ),
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Icon(
-                          Icons.folder_rounded,
-                          size: 26,
-                          color: isExternal
-                              ? const Color(0xFF40AAAA)
-                              : AppColors.folderIcon,
-                        ),
-                        if (isExternal)
-                          const Positioned(
-                            right: 4,
-                            bottom: 4,
-                            child: Icon(Icons.sd_card_rounded,
-                                size: 10, color: Color(0xFF40AAAA)),
-                          ),
-                        // FIX #11: pulsing play icon overlay when now playing
-                        if (isNowPlaying)
-                          Container(
-                            decoration: BoxDecoration(
-                              color: AppColors.accent.withValues(alpha: 0.85),
-                              borderRadius: AppRadius.sm,
-                            ),
-                            child: const Icon(
-                              Icons.equalizer_rounded,
-                              size: 22,
-                              color: Colors.black,
-                            ),
-                          ),
-                      ],
-                    ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Row(
+              children: [
+                // Folder icon container
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: isExternal
+                        ? const Color(0xFF0F2020)
+                        : AppColors.folderTint,
+                    borderRadius: AppRadius.sm,
                   ),
-                  const SizedBox(width: 14),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(
+                        Icons.folder_rounded,
+                        size: 26,
+                        color: isExternal
+                            ? const Color(0xFF40AAAA)
+                            : AppColors.folderIcon,
+                      ),
+                      if (isExternal)
+                        const Positioned(
+                          right: 4,
+                          bottom: 4,
+                          child: Icon(Icons.sd_card_rounded,
+                              size: 10, color: Color(0xFF40AAAA)),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
 
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                folder.name,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w500,
-                                  color: isNowPlaying
-                                      ? AppColors.accent
-                                      : AppColors.textPrimary,
-                                  letterSpacing: -0.2,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        folder.name,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textPrimary,
+                          letterSpacing: -0.2,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Text(
+                            '${folder.videoCount} '
+                            'video${folder.videoCount == 1 ? '' : 's'}',
+                            style: AppTextStyles.bodySmall,
+                          ),
+                          if (isExternal) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF0A2020),
+                                borderRadius: AppRadius.xs,
                               ),
-                            ),
-                            // FIX #11: "Now Playing" label
-                            if (isNowPlaying) ...[
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 7, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: AppColors.accent,
-                                  borderRadius: AppRadius.xs,
-                                ),
-                                child: const Text(
-                                  'NOW PLAYING',
+                              child: const Text('SD',
                                   style: TextStyle(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.black,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 3),
-                        Row(
-                          children: [
-                            Text(
-                              '${folder.videoCount} '
-                              'video${folder.videoCount == 1 ? '' : 's'}',
-                              style: AppTextStyles.bodySmall,
+                                      fontSize: 9,
+                                      color: Color(0xFF40AAAA),
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.5)),
                             ),
-                            if (isExternal) ...[
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF0A2020),
-                                  borderRadius: AppRadius.xs,
-                                ),
-                                child: const Text('SD',
-                                    style: TextStyle(
-                                        fontSize: 9,
-                                        color: Color(0xFF40AAAA),
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.5)),
-                              ),
-                            ],
                           ],
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
+                    ],
                   ),
+                ),
 
-                  if (onResume != null && resume != null) ...[
-                    _ResumePill(
-                      position: resume!.position,
-                      onTap: onResume!,
-                    ),
-                    const SizedBox(width: 10),
-                  ],
-
-                  const Icon(Icons.chevron_right_rounded,
-                      size: 18, color: AppColors.textMuted),
+                if (onResume != null && resume != null) ...[
+                  _ResumePill(
+                    position: resume!.position,
+                    onTap: onResume!,
+                  ),
+                  const SizedBox(width: 10),
                 ],
-              ),
+
+                const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: AppColors.textMuted),
+              ],
             ),
           ),
         ),
