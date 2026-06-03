@@ -264,7 +264,12 @@ class PlayerNotifier extends Notifier<PlayerState> {
     await _player!.setRate(savedSpeed);
 
     VolumeService.instance.addListener((vol) {
-      if (!_isDisposing) state = state.copyWith(volume: vol * 100);
+      // Only sync device volume changes when not in boost mode.
+      // During boost (> 100%), the user explicitly set amplification via the
+      // app UI — physical button events should not override that.
+      if (!_isDisposing && state.volume <= 100.0) {
+        state = state.copyWith(volume: vol * 100);
+      }
     });
 
     _listenStreams(onReady: () {
@@ -507,7 +512,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
       swipeGesture: gesture,
       swipeValue: gesture == SwipeGesture.brightness
           ? state.brightness
-          : state.volume / 100.0,
+          : state.volume / 200.0,
     );
     return gesture;
   }
@@ -521,9 +526,15 @@ class PlayerNotifier extends Notifier<PlayerState> {
       state =
           state.copyWith(brightness: newBrightness, swipeValue: newBrightness);
     } else {
-      final newVol = ((state.volume / 100.0) + delta).clamp(0.0, 1.0);
-      VolumeService.instance.setDeviceVolume(newVol);
-      state = state.copyWith(volume: newVol * 100, swipeValue: newVol);
+      final newVol = (state.volume + delta * 100).clamp(0.0, 200.0);
+      if (newVol <= 100.0) {
+        VolumeService.instance.setDeviceVolume(newVol / 100.0);
+        _player?.setVolume(100);
+      } else {
+        VolumeService.instance.setDeviceVolume(1.0);
+        _player?.setVolume(newVol);
+      }
+      state = state.copyWith(volume: newVol, swipeValue: newVol / 200.0);
     }
   }
 
@@ -627,8 +638,17 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void setVolume(double volume) {
-    VolumeService.instance.setDeviceVolume(volume / 100.0);
-    state = state.copyWith(volume: volume);
+    final clamped = volume.clamp(0.0, 200.0);
+    if (clamped <= 100.0) {
+      // Normal range: device volume controls output, player at 100% internally.
+      VolumeService.instance.setDeviceVolume(clamped / 100.0);
+      _player?.setVolume(100);
+    } else {
+      // Boost range: device at max, player amplifies beyond 100%.
+      VolumeService.instance.setDeviceVolume(1.0);
+      _player?.setVolume(clamped);
+    }
+    state = state.copyWith(volume: clamped);
   }
 
   void setSpeed(double speed) {

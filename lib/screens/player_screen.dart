@@ -484,16 +484,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   final displayName = currentVideo?.name ?? widget.fileName;
                   final notifier = ref.read(playerProvider.notifier);
 
-                  // Keep controls in the widget tree when locked (opacity=0)
-                  // so that Flutter never tears down compositing layers,
-                  // which would cause the Video platform texture to flash black.
+                  // Keep controls in the widget tree when hidden (opacity=0)
+                  // so Flutter never tears down the platform-view compositor layer,
+                  // which would flash black. When HIDING we use a plain Opacity
+                  // (no animation) because AnimatedOpacity over a platform view
+                  // creates an intermediate compositor layer that flashes white
+                  // in release builds. Only SHOWING uses the fade-in animation.
                   final visible = controlsVisible && !isLocked;
-                  return AnimatedOpacity(
-                    opacity: visible ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: IgnorePointer(
-                      ignoring: !visible,
-                      child: PlayerControlsOverlay(
+                  final child = IgnorePointer(
+                    ignoring: !visible,
+                    child: PlayerControlsOverlay(
                         fileName: displayName,
                         onBack: () => Navigator.pop(context),
                         onTogglePlay: notifier.togglePlay,
@@ -514,8 +514,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         onPlayPrevious: notifier.playPrevious,
                         onToggleLock: notifier.toggleLock,
                       ),
-                    ),
-                  );
+                    );
+                  // Visible: animate fade-in. Hidden: instant Opacity(0) to
+                  // avoid the white compositor flash in release builds.
+                  if (visible) {
+                    return AnimatedOpacity(
+                      opacity: 1.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: child,
+                    );
+                  }
+                  return Opacity(opacity: 0.0, child: child);
                 },
               ),
             ],

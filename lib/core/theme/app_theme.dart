@@ -171,9 +171,9 @@ final class AppTheme {
     elevated: Color(0xFF242428),
     border: Color(0xFF2C2C30),
     divider: Color(0xFF1F1F23),
-    accent: Color(0xFF6C8EFF),
-    accentSoft: Color(0x266C8EFF),
-    accentGlow: Color(0x406C8EFF),
+    accent: Color(0xFFFF8C00),
+    accentSoft: Color(0x33FF8C00),
+    accentGlow: Color(0x44FF8C00),
     textPrimary: Color(0xFFF0F0F2),
     textSecondary: Color(0xFF8A8A92),
     textMuted: Color(0xFF4A4A52),
@@ -183,7 +183,7 @@ final class AppTheme {
     errorRed: Color(0xFFFF5C5C),
     errorBg: Color(0xFF2A1010),
     progressBg: Color(0xFF252528),
-    progressFill: Color(0xFF6C8EFF),
+    progressFill: Color(0xFFFF8C00),
   );
 
   static const _lightColors = AppThemeColors(
@@ -193,9 +193,9 @@ final class AppTheme {
     elevated: Color(0xFFEAEAED),
     border: Color(0xFFDCDCE0),
     divider: Color(0xFFE5E5E8),
-    accent: Color(0xFF4A6DE5),
-    accentSoft: Color(0x264A6DE5),
-    accentGlow: Color(0x404A6DE5),
+    accent: Color(0xFFE07000),
+    accentSoft: Color(0x33E07000),
+    accentGlow: Color(0x40E07000),
     textPrimary: Color(0xFF1C1C1E),
     textSecondary: Color(0xFF6B6B70),
     textMuted: Color(0xFF909096),
@@ -205,7 +205,7 @@ final class AppTheme {
     errorRed: Color(0xFFE53935),
     errorBg: Color(0xFFFFEBEE),
     progressBg: Color(0xFFE0E0E0),
-    progressFill: Color(0xFF4A6DE5),
+    progressFill: Color(0xFFE07000),
   );
 
   static AppThemeTextStyles _createTextStyles(AppThemeColors c) => AppThemeTextStyles(
