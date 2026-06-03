@@ -60,7 +60,7 @@ class _VolumeSheetState extends State<VolumeSheet> {
                     borderRadius: AppRadius.xl,
                     border: Border.all(color: context.colors.border),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Done',
                     style: TextStyle(
                       fontSize: 12,

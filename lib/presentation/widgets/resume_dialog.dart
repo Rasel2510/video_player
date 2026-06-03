@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_theme.dart';
-import '../../core/utils/duration_formatter.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/duration_formatter.dart';
 
 /// FIX #3: Shared resume dialog, eliminating the duplicate implementations
 /// that existed in home_screen.dart and folder_videos_screen.dart.

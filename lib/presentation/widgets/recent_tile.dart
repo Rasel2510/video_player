@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_theme.dart';
-import '../../core/utils/duration_formatter.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/duration_formatter.dart';
 import '../../domain/entities/video_entity.dart';
 
 class RecentTile extends StatelessWidget {

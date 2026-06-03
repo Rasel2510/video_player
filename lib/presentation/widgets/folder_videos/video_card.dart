@@ -1,0 +1,137 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_video_player/core/theme/app_theme.dart';
+import 'package:flutter_video_player/core/utils/duration_formatter.dart';
+import 'package:flutter_video_player/models/video_file.dart';
+import '../thumbnail_widget.dart';
+import 'format_badge.dart';
+import 'new_video_badge.dart';
+import 'sort_option.dart';
+
+class VideoCard extends StatelessWidget {
+  final VideoFile vf;
+  final Duration? savedPos;
+  final Duration? totalDur;
+  final bool isNew;
+  final SortOption sortBy;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const VideoCard({
+    super.key,
+    required this.vf,
+    required this.onTap,
+    required this.onLongPress,
+    this.savedPos,
+    this.totalDur,
+    this.isNew = false,
+    this.sortBy = SortOption.name,
+  });
+
+  String get _subtitle {
+    switch (sortBy) {
+      case SortOption.dateModified:
+        final d = vf.modified;
+        return '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+            '${d.day.toString().padLeft(2, '0')}';
+      case SortOption.duration:
+        return totalDur != null
+            ? DurationFormatter.format(totalDur!)
+            : vf.sizeLabel;
+      case SortOption.name:
+      case SortOption.size:
+        return vf.sizeLabel;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (savedPos != null &&
+            totalDur != null &&
+            totalDur!.inMilliseconds > 0)
+        ? (savedPos!.inMilliseconds / totalDur!.inMilliseconds).clamp(0.0, 1.0)
+        : 0.0;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: context.colors.surface,
+        borderRadius: AppRadius.md,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          splashColor: context.colors.accentSoft,
+          highlightColor: Colors.transparent,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: AppRadius.sm,
+                      child: VideoThumbnailWidget(
+                          videoPath: vf.path, width: 88, height: 58),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            vf.name,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: context.colors.textPrimary,
+                              height: 1.3,
+                              letterSpacing: -0.1,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (isNew) ...[
+                            const SizedBox(height: 3),
+                            const NewVideoBadge(),
+                          ],
+                          const SizedBox(height: 6),
+                          Row(children: [
+                            FormatBadge(vf.extension.replaceFirst('.', '')),
+                            const SizedBox(width: 8),
+                            Text(_subtitle, style: context.textStyles.caption),
+                            if (savedPos != null) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                DurationFormatter.format(savedPos!),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: context.colors.accent,
+                                  fontFamily: 'monospace',
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ]),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded,
+                        size: 18, color: context.colors.textMuted),
+                  ],
+                ),
+              ),
+              if (savedPos != null && progress > 0)
+                LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 2,
+                  backgroundColor: context.colors.progressBg,
+                  valueColor:
+                      AlwaysStoppedAnimation(context.colors.progressFill),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

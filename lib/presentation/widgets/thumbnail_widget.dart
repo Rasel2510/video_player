@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import '../../core/theme/app_theme.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../services/thumbnail_service.dart';
 
 /// Async thumbnail with shimmer placeholder and graceful fallback.

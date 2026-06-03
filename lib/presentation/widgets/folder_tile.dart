@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
-import '../../core/theme/app_theme.dart';
+import '../../../core/theme/app_theme.dart';
 
 class FolderTile extends StatelessWidget {
   final String dirPath;
