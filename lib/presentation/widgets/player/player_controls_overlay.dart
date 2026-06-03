@@ -12,9 +12,9 @@ const _kWhite30  = Color(0x4DFFFFFF);
 const _kWhite12  = Color(0x1FFFFFFF);
 const _kBlack70  = Color(0xB3000000);
 const _kBlack40  = Color(0x66000000);
-const _kAccent   = Color(0xFFE8FF58); // fresh lime accent
+const _kAccent   = Color(0xFF6C8EFF);
 
-// ── Main overlay ─────────────────────────────────────────────────────────────
+// ── Main overlay ──────────────────────────────────────────────────────────────
 
 class PlayerControlsOverlay extends StatelessWidget {
   final String fileName;
@@ -33,6 +33,7 @@ class PlayerControlsOverlay extends StatelessWidget {
   final void Function(double) onSeekEnd;
   final VoidCallback onPlayNext;
   final VoidCallback onPlayPrevious;
+  final VoidCallback onToggleLock;
 
   const PlayerControlsOverlay({
     super.key,
@@ -52,25 +53,21 @@ class PlayerControlsOverlay extends StatelessWidget {
     required this.onSeekEnd,
     required this.onPlayNext,
     required this.onPlayPrevious,
+    required this.onToggleLock,
   });
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Top gradient
         Positioned(
-          top: 0, left: 0, right: 0,
-          height: 160,
+          top: 0, left: 0, right: 0, height: 160,
           child: _buildGradient(Alignment.topCenter, Alignment.bottomCenter),
         ),
-        // Bottom gradient
         Positioned(
-          bottom: 0, left: 0, right: 0,
-          height: 200,
+          bottom: 0, left: 0, right: 0, height: 200,
           child: _buildGradient(Alignment.bottomCenter, Alignment.topCenter),
         ),
-        // Content
         SafeArea(
           child: Column(
             children: [
@@ -82,6 +79,7 @@ class PlayerControlsOverlay extends StatelessWidget {
                 onShowVolume: onShowVolume,
                 onShowAudio: onShowAudio,
                 onShowSubtitle: onShowSubtitle,
+                onToggleLock: onToggleLock,
               ),
               const Spacer(),
               _CenterControls(
@@ -128,6 +126,7 @@ class _TopBar extends ConsumerWidget {
   final VoidCallback onShowVolume;
   final VoidCallback onShowAudio;
   final VoidCallback onShowSubtitle;
+  final VoidCallback onToggleLock;
 
   const _TopBar({
     required this.fileName,
@@ -137,6 +136,7 @@ class _TopBar extends ConsumerWidget {
     required this.onShowVolume,
     required this.onShowAudio,
     required this.onShowSubtitle,
+    required this.onToggleLock,
   });
 
   @override
@@ -146,8 +146,8 @@ class _TopBar extends ConsumerWidget {
     final volume  = ref.watch(playerProvider.select((s) => s.volume));
     final hasMultipleAudio = ref.watch(playerProvider.select(
         (s) => s.audioTracks.where((t) => t.id != 'no' && t.id != 'auto').length > 1));
-    final hasSubtitles      = ref.watch(playerProvider.select((s) => s.subtitleTracks.isNotEmpty));
-    final subtitlesEnabled  = ref.watch(playerProvider.select((s) => s.subtitlesEnabled));
+    final hasSubtitles     = ref.watch(playerProvider.select((s) => s.subtitleTracks.isNotEmpty));
+    final subtitlesEnabled = ref.watch(playerProvider.select((s) => s.subtitlesEnabled));
 
     final speedLabel = speed == speed.roundToDouble()
         ? '${speed.toInt()}×'
@@ -157,14 +157,12 @@ class _TopBar extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
       child: Row(
         children: [
-          // Back button
           _GlassIconButton(
             icon: Icons.arrow_back_ios_new_rounded,
             size: 20,
             onTap: onBack,
           ),
           const SizedBox(width: 8),
-          // Title
           Expanded(
             child: Text(
               fileName,
@@ -179,7 +177,13 @@ class _TopBar extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 8),
-          // Right-side action chips
+          // Lock gesture button
+          _GlassIconButton(
+            icon: Icons.lock_open_rounded,
+            size: 19,
+            onTap: onToggleLock,
+          ),
+          const SizedBox(width: 2),
           _MiniChip(label: fitMode.label, onTap: onCycleFitMode),
           const SizedBox(width: 6),
           _MiniChip(label: speedLabel, onTap: onShowSpeed),
@@ -246,7 +250,6 @@ class _CenterControls extends ConsumerWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Previous track
         if (hasSiblings) ...[
           _TrackButton(
             icon: Icons.skip_previous_rounded,
@@ -255,20 +258,11 @@ class _CenterControls extends ConsumerWidget {
           ),
           const SizedBox(width: 12),
         ],
-
-        // Seek back −10
         _SeekPill(seconds: -10, onTap: onSeekBack),
         const SizedBox(width: 16),
-
-        // Play / Pause — main button
         _PlayButton(isPlaying: isPlaying, onTap: onTogglePlay),
-
         const SizedBox(width: 16),
-
-        // Seek forward +10
         _SeekPill(seconds: 10, onTap: onSeekForward),
-
-        // Next track
         if (hasSiblings) ...[
           const SizedBox(width: 12),
           _TrackButton(
@@ -285,7 +279,6 @@ class _CenterControls extends ConsumerWidget {
 class _PlayButton extends StatelessWidget {
   final bool isPlaying;
   final VoidCallback onTap;
-
   const _PlayButton({required this.isPlaying, required this.onTap});
 
   @override
@@ -318,7 +311,6 @@ class _PlayButton extends StatelessWidget {
 class _SeekPill extends StatelessWidget {
   final int seconds;
   final VoidCallback onTap;
-
   const _SeekPill({required this.seconds, required this.onTap});
 
   @override
@@ -344,21 +336,13 @@ class _TrackButton extends StatelessWidget {
   final IconData icon;
   final bool enabled;
   final VoidCallback onTap;
-
-  const _TrackButton({
-    required this.icon,
-    required this.enabled,
-    required this.onTap,
-  });
+  const _TrackButton({required this.icon, required this.enabled, required this.onTap});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: enabled ? onTap : null,
-        child: Icon(
-          icon,
-          size: 34,
-          color: enabled ? _kWhite60 : _kWhite12,
-        ),
+        child: Icon(icon, size: 34,
+            color: enabled ? _kWhite60 : _kWhite12),
       );
 }
 
@@ -379,9 +363,9 @@ class _BottomBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final position    = ref.watch(playerProvider.select((s) => s.position));
-    final duration    = ref.watch(playerProvider.select((s) => s.duration));
-    final progress    = ref.watch(playerProvider.select((s) => s.progress));
+    final position     = ref.watch(playerProvider.select((s) => s.position));
+    final duration     = ref.watch(playerProvider.select((s) => s.duration));
+    final progress     = ref.watch(playerProvider.select((s) => s.progress));
     final isFullscreen = ref.watch(playerProvider.select((s) => s.isFullscreen));
 
     return Padding(
@@ -389,7 +373,6 @@ class _BottomBar extends ConsumerWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Progress bar ──────────────────────────────────────────────────
           _MinimalistSlider(
             value: progress.clamp(0.0, 1.0),
             onChangeStart: onSeekStart,
@@ -397,34 +380,27 @@ class _BottomBar extends ConsumerWidget {
             onChangeEnd: onSeekEnd,
           ),
           const SizedBox(height: 6),
-          // ── Time row ─────────────────────────────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 DurationFormatter.format(position),
                 style: const TextStyle(
-                  color: _kWhite100,
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  fontWeight: FontWeight.w600,
+                  color: _kWhite100, fontSize: 12,
+                  fontFamily: 'monospace', fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
                 ),
               ),
-              // Remaining time
               Text(
                 '−${DurationFormatter.format(duration - position)}',
                 style: const TextStyle(
-                  color: _kWhite60,
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.5,
+                  color: _kWhite60, fontSize: 12,
+                  fontFamily: 'monospace', letterSpacing: 0.5,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          // ── Bottom actions row ────────────────────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -494,7 +470,7 @@ class _GlassIconButton extends StatelessWidget {
     required this.size,
     required this.onTap,
     this.active = false,
-    this.dim = false,
+    this.dim    = false,
   });
 
   @override
@@ -521,7 +497,6 @@ class _GlassIconButton extends StatelessWidget {
 class _MiniChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-
   const _MiniChip({required this.label, required this.onTap});
 
   @override
@@ -532,7 +507,8 @@ class _MiniChip extends StatelessWidget {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
               decoration: BoxDecoration(
                 color: _kBlack40,
                 borderRadius: BorderRadius.circular(6),
@@ -553,7 +529,7 @@ class _MiniChip extends StatelessWidget {
       );
 }
 
-// ── Public chip (used externally) ─────────────────────────────────────────────
+// ── Public exports ────────────────────────────────────────────────────────────
 
 class PlayerChip extends StatelessWidget {
   final String label;

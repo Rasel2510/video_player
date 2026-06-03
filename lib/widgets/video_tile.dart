@@ -22,13 +22,13 @@ class VideoTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: AppColors.surface,
+        color: context.colors.surface,
         borderRadius: AppRadius.md,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           onLongPress: onLongPress,
-          splashColor: AppColors.accentSoft,
+          splashColor: context.colors.accentSoft,
           highlightColor: Colors.transparent,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
@@ -46,10 +46,10 @@ class VideoTile extends StatelessWidget {
                     children: [
                       Text(
                         video.name,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
-                          color: AppColors.textPrimary,
+                          color: context.colors.textPrimary,
                           height: 1.3,
                           letterSpacing: -0.1,
                         ),
@@ -61,14 +61,14 @@ class VideoTile extends StatelessWidget {
                         _FormatBadge(
                             video.extension.replaceFirst('.', '')),
                         const SizedBox(width: 8),
-                        Text(video.sizeLabel, style: AppTextStyles.caption),
+                        Text(video.sizeLabel, style: context.textStyles.caption),
                       ]),
                     ],
                   ),
                 ),
                 trailing ??
-                    const Icon(Icons.chevron_right_rounded,
-                        size: 18, color: AppColors.textMuted),
+                    Icon(Icons.chevron_right_rounded,
+                        size: 18, color: context.colors.textMuted),
               ],
             ),
           ),
@@ -85,16 +85,16 @@ class _FormatBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: const BoxDecoration(
-          color: AppColors.accentSoft,
+        decoration: BoxDecoration(
+          color: context.colors.accentSoft,
           borderRadius: AppRadius.xs,
         ),
         child: Text(
           ext.toUpperCase(),
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 9,
             fontWeight: FontWeight.w700,
-            color: AppColors.accent,
+            color: context.colors.accent,
             letterSpacing: 0.5,
           ),
         ),

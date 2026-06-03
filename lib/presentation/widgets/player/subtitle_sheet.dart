@@ -44,8 +44,8 @@ class SubtitleSheet extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             child: Row(
               children: [
-                const Icon(Icons.subtitles_outlined,
-                    color: AppColors.accent, size: 18),
+                Icon(Icons.subtitles_outlined,
+                    color: context.colors.accent, size: 18),
                 const SizedBox(width: 10),
                 const Text('Subtitles',
                     style: TextStyle(
@@ -64,11 +64,11 @@ class SubtitleSheet extends StatelessWidget {
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: subtitlesEnabled
-                          ? AppColors.accent.withValues(alpha: 0.15)
+                          ? context.colors.accent.withValues(alpha: 0.15)
                           : const Color(0xFF222222),
                       border: Border.all(
                         color: subtitlesEnabled
-                            ? AppColors.accent
+                            ? context.colors.accent
                             : const Color(0xFF333333),
                       ),
                       borderRadius: BorderRadius.circular(4),
@@ -77,7 +77,7 @@ class SubtitleSheet extends StatelessWidget {
                       subtitlesEnabled ? 'ON' : 'OFF',
                       style: TextStyle(
                         color: subtitlesEnabled
-                            ? AppColors.accent
+                            ? context.colors.accent
                             : const Color(0xFF666666),
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
@@ -133,7 +133,7 @@ class SubtitleSheet extends StatelessWidget {
                               ? Icons.radio_button_checked
                               : Icons.radio_button_off,
                           color: isSelected
-                              ? AppColors.accent
+                              ? context.colors.accent
                               : const Color(0xFF444444),
                           size: 18,
                         ),
@@ -150,8 +150,8 @@ class SubtitleSheet extends StatelessWidget {
                           ),
                         ),
                         if (isSelected)
-                          const Icon(Icons.check,
-                              color: AppColors.accent, size: 16),
+                          Icon(Icons.check,
+                              color: context.colors.accent, size: 16),
                       ],
                     ),
                   ),
@@ -167,11 +167,11 @@ class SubtitleSheet extends StatelessWidget {
                 Navigator.pop(context);
                 // TODo: file_picker to load .srt/.ass/.vtt — pass to player
               },
-              icon: const Icon(Icons.folder_open_outlined,
-                  size: 16, color: AppColors.accent),
-              label: const Text('Load external subtitle',
+              icon: Icon(Icons.folder_open_outlined,
+                  size: 16, color: context.colors.accent),
+              label: Text('Load external subtitle',
                   style: TextStyle(
-                      color: AppColors.accent, fontSize: 12, letterSpacing: 0.5)),
+                      color: context.colors.accent, fontSize: 12, letterSpacing: 0.5)),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Color(0xFF333333)),
                 padding:

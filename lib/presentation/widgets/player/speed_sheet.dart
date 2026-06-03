@@ -22,7 +22,7 @@ class SpeedSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('PLAYBACK SPEED', style: AppTextStyles.label),
+          Text('PLAYBACK SPEED', style: context.textStyles.label),
           const SizedBox(height: 16),
           Wrap(
             spacing: 10,
@@ -34,24 +34,26 @@ class SpeedSheet extends StatelessWidget {
                   : '$s×';
               return GestureDetector(
                 onTap: () {
-                  Navigator.pop(context);
+                  // FIX: call onSelect first — calling pop first can dispose
+                  // the BuildContext before setRate() reaches the player.
                   onSelect(s);
+                  Navigator.pop(context);
                 },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                   decoration: BoxDecoration(
-                    color: selected ? AppColors.accent : AppColors.elevated,
+                    color: selected ? context.colors.accent : context.colors.elevated,
                     // FIX #4: was missing borderRadius — now consistent with rest of app
                     borderRadius: AppRadius.sm,
                     border: Border.all(
-                      color: selected ? AppColors.accent : AppColors.border,
+                      color: selected ? context.colors.accent : context.colors.border,
                     ),
                   ),
                   child: Text(
                     label,
                     style: TextStyle(
-                      color: selected ? Colors.black : AppColors.textPrimary,
+                      color: selected ? Colors.black : context.colors.textPrimary,
                       fontWeight: FontWeight.w600,
                       fontFamily: 'monospace',
                       fontSize: 13,

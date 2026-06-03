@@ -15,8 +15,8 @@ class RecentTile extends StatelessWidget {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.divider)),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: context.colors.divider)),
         ),
         child: Row(
           children: [
@@ -26,31 +26,31 @@ class RecentTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(video.name, style: AppTextStyles.body,
+                  Text(video.name, style: context.textStyles.body,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
                   Row(children: [
                     Text(video.extensionLabel,
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: AppColors.accent,
+                        style: context.textStyles.bodySmall.copyWith(
+                          color: context.colors.accent,
                           letterSpacing: 1,
                           fontFamily: 'monospace',
                         )),
                     const SizedBox(width: 8),
-                    Text(video.sizeLabel, style: AppTextStyles.mono),
+                    Text(video.sizeLabel, style: context.textStyles.mono),
                     const Spacer(),
                     Text(
                       DurationFormatter.timeAgo(video.lastModified),
-                      style: AppTextStyles.mono
-                          .copyWith(color: AppColors.textDim, fontSize: 10),
+                      style: context.textStyles.mono
+                          .copyWith(color: context.colors.textDim, fontSize: 10),
                     ),
                   ]),
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            const Icon(Icons.chevron_right,
-                size: 18, color: AppColors.textDim),
+            Icon(Icons.chevron_right,
+                size: 18, color: context.colors.textDim),
           ],
         ),
       ),
@@ -64,10 +64,10 @@ class _Thumbnail extends StatelessWidget {
         width: 56,
         height: 40,
         decoration: BoxDecoration(
-          color: AppColors.panel,
-          border: Border.all(color: AppColors.border),
+          color: context.colors.panel,
+          border: Border.all(color: context.colors.border),
         ),
-        child: const Icon(Icons.play_circle_outline,
-            color: AppColors.textDim, size: 22),
+        child: Icon(Icons.play_circle_outline,
+            color: context.colors.textDim, size: 22),
       );
 }

@@ -14,12 +14,12 @@ class FolderTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: AppColors.surface,
+        color: context.colors.surface,
         borderRadius: AppRadius.md,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
-          splashColor: AppColors.accentSoft,
+          splashColor: context.colors.accentSoft,
           highlightColor: Colors.transparent,
           child: Padding(
             padding: const EdgeInsets.symmetric(
@@ -29,25 +29,25 @@ class FolderTile extends StatelessWidget {
                 Container(
                   width: 36,
                   height: 36,
-                  decoration: const BoxDecoration(
-                    color: AppColors.folderTint,
+                  decoration: BoxDecoration(
+                    color: context.colors.folderTint,
                     borderRadius: AppRadius.xs,
                   ),
-                  child: const Icon(Icons.folder_rounded,
-                      size: 20, color: AppColors.folderIcon),
+                  child: Icon(Icons.folder_rounded,
+                      size: 20, color: context.colors.folderIcon),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Text(name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
-                        color: AppColors.textPrimary,
+                        color: context.colors.textPrimary,
                       ),
                       overflow: TextOverflow.ellipsis),
                 ),
-                const Icon(Icons.chevron_right_rounded,
-                    size: 18, color: AppColors.textMuted),
+                Icon(Icons.chevron_right_rounded,
+                    size: 18, color: context.colors.textMuted),
               ],
             ),
           ),

@@ -27,13 +27,13 @@ class ResumeDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, Duration.zero),
-          child: const Text('Start over',
-              style: TextStyle(color: AppColors.textSecondary)),
+          child: Text('Start over',
+              style: TextStyle(color: context.colors.textSecondary)),
         ),
         FilledButton(
           onPressed: () => Navigator.pop(context, position),
           style: FilledButton.styleFrom(
-            backgroundColor: AppColors.accent,
+            backgroundColor: context.colors.accent,
             foregroundColor: Colors.white,
             shape: const StadiumBorder(),
             textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),

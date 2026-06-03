@@ -90,8 +90,8 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
             const Icon(Icons.folder_open_outlined,
                 size: 48, color: Color(0xFF2A2A2A)),
             const SizedBox(height: 16),
-            const Text('Browse your device folders',
-                style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+            Text('Browse your device folders',
+                style: TextStyle(fontSize: 14, color: context.colors.textSecondary)),
             const SizedBox(height: 6),
             const Text('Navigate directories to find videos',
                 style: TextStyle(fontSize: 12, color: Color(0xFF333333))),
@@ -102,12 +102,12 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
                 padding: const EdgeInsets.symmetric(
                     horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.accent),
+                  border: Border.all(color: context.colors.accent),
                 ),
-                child: const Text('CHOOSE ROOT FOLDER',
+                child: Text('CHOOSE ROOT FOLDER',
                     style: TextStyle(
                       fontSize: 11,
-                      color: AppColors.accent,
+                      color: context.colors.accent,
                       letterSpacing: 2,
                       fontWeight: FontWeight.bold,
                     )),
@@ -158,8 +158,8 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
                           style: TextStyle(
                             fontSize: 12,
                             color: isLast
-                                ?  AppColors.accent
-                                :  AppColors.textSecondary,
+                                ?  context.colors.accent
+                                :  context.colors.textSecondary,
                             fontFamily: 'monospace',
                           ),
                         ),
@@ -171,8 +171,8 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
 
               // Change root
               IconButton(
-                icon: const Icon(Icons.drive_folder_upload_outlined,
-                    size: 18, color: AppColors.textSecondary),
+                icon: Icon(Icons.drive_folder_upload_outlined,
+                    size: 18, color: context.colors.textSecondary),
                 tooltip: 'Change root folder',
                 onPressed: _pickRoot,
               ),
@@ -183,8 +183,8 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
         // ── CONTENT ──
         Expanded(
           child: _loading
-              ? const Center(
-                  child: CircularProgressIndicator(color: AppColors.accent))
+              ? Center(
+                  child: CircularProgressIndicator(color: context.colors.accent))
               : _contents == null
                   ? const SizedBox()
                   : _buildContents(),
@@ -206,7 +206,7 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
             Icon(Icons.folder_off_outlined, size: 36, color: Color(0xFF2A2A2A)),
             SizedBox(height: 12),
             Text('Empty folder',
-                style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                style: TextStyle(fontSize: 13, color: context.colors.textSecondary)),
           ],
         ),
       );
@@ -233,8 +233,8 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
             child: Row(children: [
               Text(
                 '${videos.length} VIDEO${videos.length == 1 ? '' : 'S'}',
-                style: const TextStyle(
-                  fontSize: 10, color: AppColors.textSecondary,
+                style: TextStyle(
+                  fontSize: 10, color: context.colors.textSecondary,
                   letterSpacing: 2, fontFamily: 'monospace',
                 ),
               ),
@@ -273,8 +273,8 @@ class _DirTile extends StatelessWidget {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.divider)),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: context.colors.divider)),
         ),
         child: Row(
           children: [
