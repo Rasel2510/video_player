@@ -301,9 +301,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     ),
                   ),
 
-                // ── Lock icon (visible for 3 s, then hides) ──────────────────
-                if (isLocked && lockIconVisible)
-                  LockOverlay(onUnlock: notifier.toggleLock),
+                // ── Lock icon (visible for 2 s, then fades out) ────────────────
+                if (isLocked)
+                  AnimatedOpacity(
+                    opacity: lockIconVisible ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: IgnorePointer(
+                      ignoring: !lockIconVisible,
+                      child: LockOverlay(onUnlock: notifier.toggleLock),
+                    ),
+                  ),
               ],
             );
           },
@@ -499,7 +506,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         onShowSubtitle: () => _showSubtitleSheet(context),
                         onSeekBack: () => notifier.seekRelative(-10),
                         onSeekForward: () => notifier.seekRelative(10),
-                        onToggleFullscreen: notifier.toggleFullscreen,
+                        onToggleFullscreen: notifier.cycleRotationMode,
                         onSeekStart: notifier.beginSeek,
                         onSeekUpdate: notifier.updateSeek,
                         onSeekEnd: notifier.endSeek,

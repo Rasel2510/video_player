@@ -74,7 +74,6 @@ class PlayerControlsOverlay extends StatelessWidget {
               _TopBar(
                 fileName: fileName,
                 onBack: onBack,
-                onCycleFitMode: onCycleFitMode,
                 onShowSpeed: onShowSpeed,
                 onShowVolume: onShowVolume,
                 onShowAudio: onShowAudio,
@@ -95,6 +94,7 @@ class PlayerControlsOverlay extends StatelessWidget {
                 onSeekUpdate: onSeekUpdate,
                 onSeekEnd: onSeekEnd,
                 onToggleFullscreen: onToggleFullscreen,
+                onCycleFitMode: onCycleFitMode,
               ),
             ],
           ),
@@ -121,7 +121,6 @@ class PlayerControlsOverlay extends StatelessWidget {
 class _TopBar extends ConsumerWidget {
   final String fileName;
   final VoidCallback onBack;
-  final VoidCallback onCycleFitMode;
   final VoidCallback onShowSpeed;
   final VoidCallback onShowVolume;
   final VoidCallback onShowAudio;
@@ -131,7 +130,6 @@ class _TopBar extends ConsumerWidget {
   const _TopBar({
     required this.fileName,
     required this.onBack,
-    required this.onCycleFitMode,
     required this.onShowSpeed,
     required this.onShowVolume,
     required this.onShowAudio,
@@ -141,7 +139,6 @@ class _TopBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final fitMode = ref.watch(playerProvider.select((s) => s.fitMode));
     final speed   = ref.watch(playerProvider.select((s) => s.playbackSpeed));
     final volume  = ref.watch(playerProvider.select((s) => s.volume));
     final hasMultipleAudio = ref.watch(playerProvider.select(
@@ -183,8 +180,6 @@ class _TopBar extends ConsumerWidget {
             size: 19,
             onTap: onToggleLock,
           ),
-          const SizedBox(width: 2),
-          _MiniChip(label: fitMode.label, onTap: onCycleFitMode),
           const SizedBox(width: 6),
           _MiniChip(label: speedLabel, onTap: onShowSpeed),
           const SizedBox(width: 6),
@@ -348,12 +343,14 @@ class _BottomBar extends ConsumerWidget {
   final void Function(double) onSeekUpdate;
   final void Function(double) onSeekEnd;
   final VoidCallback onToggleFullscreen;
+  final VoidCallback onCycleFitMode;
 
   const _BottomBar({
     required this.onSeekStart,
     required this.onSeekUpdate,
     required this.onSeekEnd,
     required this.onToggleFullscreen,
+    required this.onCycleFitMode,
   });
 
   @override
@@ -361,7 +358,8 @@ class _BottomBar extends ConsumerWidget {
     final position     = ref.watch(playerProvider.select((s) => s.position));
     final duration     = ref.watch(playerProvider.select((s) => s.duration));
     final progress     = ref.watch(playerProvider.select((s) => s.progress));
-    final isFullscreen = ref.watch(playerProvider.select((s) => s.isFullscreen));
+    final fitMode      = ref.watch(playerProvider.select((s) => s.fitMode));
+    final rotationMode = ref.watch(playerProvider.select((s) => s.rotationMode));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -399,10 +397,14 @@ class _BottomBar extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
+              _MiniChip(label: fitMode.label, onTap: onCycleFitMode),
+              const SizedBox(width: 12),
               _GlassIconButton(
-                icon: isFullscreen
-                    ? Icons.fullscreen_exit_rounded
-                    : Icons.fullscreen_rounded,
+                icon: switch (rotationMode) {
+                  RotationMode.auto => Icons.screen_rotation_rounded,
+                  RotationMode.landscape => Icons.stay_current_landscape_rounded,
+                  RotationMode.portrait => Icons.stay_current_portrait_rounded,
+                },
                 size: 24,
                 onTap: onToggleFullscreen,
               ),

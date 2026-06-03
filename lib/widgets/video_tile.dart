@@ -37,7 +37,11 @@ class VideoTile extends StatelessWidget {
                 ClipRRect(
                   borderRadius: AppRadius.sm,
                   child: VideoThumbnailWidget(
-                      videoPath: video.path, width: 88, height: 58),
+                      videoPath: video.path,
+                      width: 88,
+                      height: 58,
+                      duration: video.duration,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(

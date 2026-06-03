@@ -26,6 +26,16 @@ extension FitModeX on FitMode {
   FitMode get next => FitMode.values[(index + 1) % FitMode.values.length];
 }
 
+enum RotationMode { auto, landscape, portrait }
+
+extension RotationModeX on RotationMode {
+  RotationMode get next => switch (this) {
+        RotationMode.auto => RotationMode.landscape,
+        RotationMode.landscape => RotationMode.portrait,
+        RotationMode.portrait => RotationMode.auto,
+      };
+}
+
 enum SwipeGesture { none, brightness, volume }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -34,7 +44,7 @@ class PlayerState {
   final bool isInitialized;
   final bool isPlaying;
   final bool controlsVisible;
-  final bool isFullscreen;
+  final RotationMode rotationMode;
   final bool isSeeking;
   final double seekValue;
   final Duration position;
@@ -72,7 +82,7 @@ class PlayerState {
     this.isInitialized = false,
     this.isPlaying = false,
     this.controlsVisible = true,
-    this.isFullscreen = false,
+    this.rotationMode = RotationMode.auto,
     this.isSeeking = false,
     this.seekValue = 0,
     this.position = Duration.zero,
@@ -120,7 +130,7 @@ class PlayerState {
     bool? isInitialized,
     bool? isPlaying,
     bool? controlsVisible,
-    bool? isFullscreen,
+    RotationMode? rotationMode,
     bool? isSeeking,
     double? seekValue,
     Duration? position,
@@ -152,7 +162,7 @@ class PlayerState {
         isInitialized: isInitialized ?? this.isInitialized,
         isPlaying: isPlaying ?? this.isPlaying,
         controlsVisible: controlsVisible ?? this.controlsVisible,
-        isFullscreen: isFullscreen ?? this.isFullscreen,
+        rotationMode: rotationMode ?? this.rotationMode,
         isSeeking: isSeeking ?? this.isSeeking,
         seekValue: seekValue ?? this.seekValue,
         position: position ?? this.position,
@@ -445,7 +455,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void _startLockIconTimer() {
     _lockIconTimer?.cancel();
-    _lockIconTimer = Timer(const Duration(seconds: 3), () {
+    _lockIconTimer = Timer(const Duration(seconds: 2), () {
       if (state.isLocked && !_isDisposing) {
         state = state.copyWith(lockIconVisible: false);
       }
@@ -636,27 +646,34 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void cycleFitMode() {
     final next = state.fitMode.next;
-    state = state.copyWith(fitMode: next);
+    state = state.copyWith(fitMode: next, zoomScale: 1.0);
     PlayerPreferencesService.instance.saveFitModeIndex(next.index);
     showControls();
   }
 
-  void toggleFullscreen() {
-    final entering = !state.isFullscreen;
-    state = state.copyWith(isFullscreen: entering);
-    if (entering) {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    } else {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  void cycleRotationMode() {
+    final next = state.rotationMode.next;
+    state = state.copyWith(rotationMode: next);
+    
+    switch (next) {
+      case RotationMode.landscape:
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        break;
+      case RotationMode.portrait:
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]);
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        break;
+      case RotationMode.auto:
+        SystemChrome.setPreferredOrientations([]); // System default
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+        break;
     }
     showControls();
   }

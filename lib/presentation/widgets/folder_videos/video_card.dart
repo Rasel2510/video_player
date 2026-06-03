@@ -71,7 +71,11 @@ class VideoCard extends StatelessWidget {
                     ClipRRect(
                       borderRadius: AppRadius.sm,
                       child: VideoThumbnailWidget(
-                          videoPath: vf.path, width: 88, height: 58),
+                        videoPath: vf.path,
+                        width: 88,
+                        height: 58,
+                        duration: totalDur,
+                      ),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
