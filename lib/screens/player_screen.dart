@@ -60,6 +60,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   // as the second finger lifts — they would otherwise trigger a brightness/
   // volume swipe unintentionally.
   bool _postPinchCooldown = false;
+  
+  double _dragStartDy = 0;
+  bool _swipeCommitted = false;
+  bool _isSeekSwipe = false;
+  double _seekStartProgress = 0;
 
   @override
   void initState() {
@@ -169,78 +174,143 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           builder: (context, ref, child) {
             final isLocked =
                 ref.watch(playerProvider.select((s) => s.isLocked));
+            final lockIconVisible =
+                ref.watch(playerProvider.select((s) => s.lockIconVisible));
             final controlsVisible =
                 ref.watch(playerProvider.select((s) => s.controlsVisible));
 
             return Stack(
               children: [
-                // ── Gesture layer (disabled when locked) ──────────────────
-                IgnorePointer(
-                  ignoring: isLocked,
-                  child: GestureDetector(
-                    onTap: () {
-                      if (!_swipeActive && !_isPinching) {
-                        controlsVisible
-                            ? notifier.hideControls()
-                            : notifier.showControls();
-                      }
-                    },
-                    onDoubleTapDown: (details) {
-                      final isLeft = details.globalPosition.dx < size.width / 2;
-                      if (isLeft) {
-                        notifier.seekRelative(-10);
-                      } else {
-                        notifier.seekRelative(10);
-                      }
-                      _triggerSeekFlash(isLeft);
-                    },
-                    // ── Scale gesture handles both single-finger swipes
-                    //    (brightness/volume) and two-finger pinch-to-zoom. ──
-                    onScaleStart: (details) {
+                // ── Main gesture layer (only active when NOT locked) ──────────
+                GestureDetector(
+                  onTap: () {
+                    if (!_swipeActive && !_isPinching) {
+                      controlsVisible
+                          ? notifier.hideControls()
+                          : notifier.showControls();
+                    }
+                  },
+                  onDoubleTapDown: (details) {
+                    if (isLocked) return;
+                    final isLeft = details.globalPosition.dx < size.width / 2;
+                    if (isLeft) {
+                      notifier.seekRelative(-10);
+                    } else {
+                      notifier.seekRelative(10);
+                    }
+                    _triggerSeekFlash(isLeft);
+                  },
+                  onScaleStart: (details) {
+                    if (isLocked) return;
+                    if (details.pointerCount >= 2) {
+                      _isPinching = true;
+                      _swipeActive = false;
+                      _postPinchCooldown = false;
+                      _baseZoomScale = ref.read(playerProvider).zoomScale;
+                    } else {
+                      if (_postPinchCooldown) return;
+                      _isPinching = false;
+                      _dragStartDx = details.localFocalPoint.dx;
+                      _dragStartDy = details.localFocalPoint.dy;
+                      _swipeActive = true;
+                      _swipeCommitted = false;
+                      _isSeekSwipe = false;
+                    }
+                  },
+                  onScaleUpdate: (details) {
+                    if (isLocked) return;
+                    if (_isPinching || details.pointerCount >= 2) {
+                      _isPinching = true;
+                      _swipeActive = false;
                       if (details.pointerCount >= 2) {
-                        _isPinching = true;
-                        _swipeActive = false;
-                        _postPinchCooldown = false;
-                        _baseZoomScale = ref.read(playerProvider).zoomScale;
-                      } else {
-                        // FIX: skip single-finger start right after pinch lifts
-                        if (_postPinchCooldown) return;
-                        _isPinching = false;
-                        _dragStartDx = details.localFocalPoint.dx;
-                        _swipeActive = true;
-                        notifier.startSwipe(_dragStartDx, size.width);
-                      }
-                    },
-                    onScaleUpdate: (details) {
-                      if (_isPinching || details.pointerCount >= 2) {
-                        _isPinching = true;
-                        _swipeActive = false;
                         notifier.setZoomScale(_baseZoomScale * details.scale);
-                      } else if (_swipeActive && !_postPinchCooldown) {
+                      }
+                    } else if (_swipeActive && !_postPinchCooldown) {
+                      if (!_swipeCommitted) {
+                        final dx = details.localFocalPoint.dx - _dragStartDx;
+                        final dy = details.localFocalPoint.dy - _dragStartDy;
+                        if (dx.abs() > 15 || dy.abs() > 15) {
+                          _swipeCommitted = true;
+                          if (dx.abs() > dy.abs()) {
+                            _isSeekSwipe = true;
+                            _seekStartProgress = ref.read(playerProvider).progress;
+                            notifier.beginSeek(_seekStartProgress);
+                            notifier.showControls();
+                          } else {
+                            _isSeekSwipe = false;
+                            notifier.startSwipe(_dragStartDx, size.width);
+                          }
+                        } else {
+                          return;
+                        }
+                      }
+                      if (_isSeekSwipe) {
+                        final durationMs =
+                            ref.read(playerProvider).duration.inMilliseconds;
+                        if (durationMs > 0) {
+                          final deltaMs =
+                              (details.localFocalPoint.dx - _dragStartDx) * 300;
+                          final seekStartMs = _seekStartProgress * durationMs;
+                          final newMs = (seekStartMs + deltaMs)
+                              .clamp(0.0, durationMs.toDouble());
+                          notifier.updateSeek(newMs / durationMs);
+                        }
+                      } else {
                         notifier.updateSwipe(
                             details.focalPointDelta.dy, size.height);
                       }
-                    },
-                    onScaleEnd: (_) {
-                      if (_isPinching) {
-                        _isPinching = false;
-                        _postPinchCooldown = true;
-                        // Clear the cooldown after the finger-lift window passes.
-                        Future.delayed(
-                          const Duration(milliseconds: 150),
-                          () => _postPinchCooldown = false,
-                        );
-                      } else if (_swipeActive) {
-                        _swipeActive = false;
-                        notifier.endSwipe();
+                    }
+                  },
+                  onScaleEnd: (_) {
+                    if (isLocked) return;
+                    if (_isPinching) {
+                      _isPinching = false;
+                      _postPinchCooldown = true;
+                      Future.delayed(
+                        const Duration(milliseconds: 150),
+                        () => _postPinchCooldown = false,
+                      );
+                    } else if (_swipeActive) {
+                      _swipeActive = false;
+                      if (_swipeCommitted) {
+                        if (_isSeekSwipe) {
+                          notifier.endSeek(
+                              ref.read(playerProvider).seekValue);
+                        } else {
+                          notifier.endSwipe();
+                        }
                       }
-                    },
-                    child: child,
-                  ),
+                    }
+                  },
+                  child: child,
                 ),
 
-                // ── Lock overlay (always interactive when locked) ──────────
-                if (isLocked) LockOverlay(onUnlock: notifier.toggleLock),
+                // ── Lock overlay — always absorbs touches when locked ─────────
+                // Using a separate full-screen GestureDetector (not toggling
+                // callbacks to null) means the Video texture never rebuilds.
+                if (isLocked)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: notifier.showLockIcon,
+                      // absorb all other gestures silently
+                      onScaleStart: (_) {},
+                      onScaleUpdate: (_) {},
+                      onScaleEnd: (_) {},
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+
+                // ── Lock icon (visible for 2 s, then fades out) ────────────────
+                if (isLocked)
+                  AnimatedOpacity(
+                    opacity: lockIconVisible ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: IgnorePointer(
+                      ignoring: !lockIconVisible,
+                      child: LockOverlay(onUnlock: notifier.toggleLock),
+                    ),
+                  ),
               ],
             );
           },
@@ -400,13 +470,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 builder: (context, ref, _) {
                   final isInitialized =
                       ref.watch(playerProvider.select((s) => s.isInitialized));
-                  final isLocked =
-                      ref.watch(playerProvider.select((s) => s.isLocked));
                   final hasError =
                       ref.watch(playerProvider.select((s) => s.hasError));
-                  if (!isInitialized || isLocked || hasError) {
+                  if (!isInitialized || hasError) {
                     return const SizedBox();
                   }
+                  final isLocked =
+                      ref.watch(playerProvider.select((s) => s.isLocked));
                   final controlsVisible = ref
                       .watch(playerProvider.select((s) => s.controlsVisible));
                   final currentVideo =
@@ -414,11 +484,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   final displayName = currentVideo?.name ?? widget.fileName;
                   final notifier = ref.read(playerProvider.notifier);
 
+                  // Keep controls in the widget tree when locked (opacity=0)
+                  // so that Flutter never tears down compositing layers,
+                  // which would cause the Video platform texture to flash black.
+                  final visible = controlsVisible && !isLocked;
                   return AnimatedOpacity(
-                    opacity: controlsVisible ? 1.0 : 0.0,
+                    opacity: visible ? 1.0 : 0.0,
                     duration: const Duration(milliseconds: 200),
                     child: IgnorePointer(
-                      ignoring: !controlsVisible,
+                      ignoring: !visible,
                       child: PlayerControlsOverlay(
                         fileName: displayName,
                         onBack: () => Navigator.pop(context),
@@ -432,7 +506,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         onShowSubtitle: () => _showSubtitleSheet(context),
                         onSeekBack: () => notifier.seekRelative(-10),
                         onSeekForward: () => notifier.seekRelative(10),
-                        onToggleFullscreen: notifier.toggleFullscreen,
+                        onToggleFullscreen: notifier.cycleRotationMode,
                         onSeekStart: notifier.beginSeek,
                         onSeekUpdate: notifier.updateSeek,
                         onSeekEnd: notifier.endSeek,

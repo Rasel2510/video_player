@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/utils/duration_formatter.dart';
+import 'package:flutter_video_player/core/theme/app_theme.dart';
+import 'package:flutter_video_player/core/utils/duration_formatter.dart';
 
 class ResumePill extends StatelessWidget {
   final Duration position;
   final VoidCallback onTap;
-  
+
   const ResumePill({super.key, required this.position, required this.onTap});
 
   @override

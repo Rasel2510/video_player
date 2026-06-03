@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_theme.dart';
+import 'package:flutter_video_player/core/theme/app_theme.dart';
 
 class ScanningScreen extends StatelessWidget {
   final int progress;
   final int storageCount;
-  
-  const ScanningScreen({super.key, required this.progress, required this.storageCount});
+
+  const ScanningScreen(
+      {super.key, required this.progress, required this.storageCount});
 
   @override
   Widget build(BuildContext context) {

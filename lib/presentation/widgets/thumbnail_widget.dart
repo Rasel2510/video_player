@@ -2,18 +2,21 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../services/thumbnail_service.dart';
+import '../../core/utils/duration_formatter.dart';
 
 /// Async thumbnail with shimmer placeholder and graceful fallback.
 class VideoThumbnailWidget extends StatefulWidget {
   final String videoPath;
   final double width;
   final double height;
+  final Duration? duration;
 
   const VideoThumbnailWidget({
     super.key,
     required this.videoPath,
     this.width = 88,
     this.height = 58,
+    this.duration,
   });
 
   @override
@@ -79,6 +82,27 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
                   color: Colors.white, size: 16),
             ),
           ),
+          if (widget.duration != null && widget.duration!.inSeconds > 0)
+            Positioned(
+              bottom: 4,
+              right: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  DurationFormatter.format(widget.duration!),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+            ),
         ],
       );
     }

@@ -1,5 +1,5 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/utils/duration_formatter.dart';
 import '../../providers/player_provider.dart';
@@ -74,7 +74,6 @@ class PlayerControlsOverlay extends StatelessWidget {
               _TopBar(
                 fileName: fileName,
                 onBack: onBack,
-                onCycleFitMode: onCycleFitMode,
                 onShowSpeed: onShowSpeed,
                 onShowVolume: onShowVolume,
                 onShowAudio: onShowAudio,
@@ -95,6 +94,7 @@ class PlayerControlsOverlay extends StatelessWidget {
                 onSeekUpdate: onSeekUpdate,
                 onSeekEnd: onSeekEnd,
                 onToggleFullscreen: onToggleFullscreen,
+                onCycleFitMode: onCycleFitMode,
               ),
             ],
           ),
@@ -121,7 +121,6 @@ class PlayerControlsOverlay extends StatelessWidget {
 class _TopBar extends ConsumerWidget {
   final String fileName;
   final VoidCallback onBack;
-  final VoidCallback onCycleFitMode;
   final VoidCallback onShowSpeed;
   final VoidCallback onShowVolume;
   final VoidCallback onShowAudio;
@@ -131,7 +130,6 @@ class _TopBar extends ConsumerWidget {
   const _TopBar({
     required this.fileName,
     required this.onBack,
-    required this.onCycleFitMode,
     required this.onShowSpeed,
     required this.onShowVolume,
     required this.onShowAudio,
@@ -141,7 +139,6 @@ class _TopBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final fitMode = ref.watch(playerProvider.select((s) => s.fitMode));
     final speed   = ref.watch(playerProvider.select((s) => s.playbackSpeed));
     final volume  = ref.watch(playerProvider.select((s) => s.volume));
     final hasMultipleAudio = ref.watch(playerProvider.select(
@@ -183,8 +180,6 @@ class _TopBar extends ConsumerWidget {
             size: 19,
             onTap: onToggleLock,
           ),
-          const SizedBox(width: 2),
-          _MiniChip(label: fitMode.label, onTap: onCycleFitMode),
           const SizedBox(width: 6),
           _MiniChip(label: speedLabel, onTap: onShowSpeed),
           const SizedBox(width: 6),
@@ -285,23 +280,18 @@ class _PlayButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: ClipOval(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _kBlack70,
-              border: Border.all(color: _kWhite30, width: 1),
-            ),
-            child: Icon(
-              isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              size: 28,
-              color: _kWhite100,
-            ),
-          ),
+      child: Container(
+        width: 54,
+        height: 54,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _kBlack70,
+          border: Border.all(color: _kWhite30, width: 1),
+        ),
+        child: Icon(
+          isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+          size: 28,
+          color: _kWhite100,
         ),
       ),
     );
@@ -353,12 +343,14 @@ class _BottomBar extends ConsumerWidget {
   final void Function(double) onSeekUpdate;
   final void Function(double) onSeekEnd;
   final VoidCallback onToggleFullscreen;
+  final VoidCallback onCycleFitMode;
 
   const _BottomBar({
     required this.onSeekStart,
     required this.onSeekUpdate,
     required this.onSeekEnd,
     required this.onToggleFullscreen,
+    required this.onCycleFitMode,
   });
 
   @override
@@ -366,7 +358,8 @@ class _BottomBar extends ConsumerWidget {
     final position     = ref.watch(playerProvider.select((s) => s.position));
     final duration     = ref.watch(playerProvider.select((s) => s.duration));
     final progress     = ref.watch(playerProvider.select((s) => s.progress));
-    final isFullscreen = ref.watch(playerProvider.select((s) => s.isFullscreen));
+    final fitMode      = ref.watch(playerProvider.select((s) => s.fitMode));
+    final rotationMode = ref.watch(playerProvider.select((s) => s.rotationMode));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -404,10 +397,14 @@ class _BottomBar extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
+              _MiniChip(label: fitMode.label, onTap: onCycleFitMode),
+              const SizedBox(width: 12),
               _GlassIconButton(
-                icon: isFullscreen
-                    ? Icons.fullscreen_exit_rounded
-                    : Icons.fullscreen_rounded,
+                icon: switch (rotationMode) {
+                  RotationMode.auto => Icons.screen_rotation_rounded,
+                  RotationMode.landscape => Icons.stay_current_landscape_rounded,
+                  RotationMode.portrait => Icons.stay_current_portrait_rounded,
+                },
                 size: 24,
                 onTap: onToggleFullscreen,
               ),
@@ -502,27 +499,20 @@ class _MiniChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-              decoration: BoxDecoration(
-                color: _kBlack40,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: _kWhite12),
-              ),
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: _kWhite100,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.4,
-                ),
-              ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          decoration: BoxDecoration(
+            color: _kBlack40,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: _kWhite12),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _kWhite100,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.4,
             ),
           ),
         ),

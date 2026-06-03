@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_theme.dart';
+import 'package:flutter_video_player/core/theme/app_theme.dart';
 import 'sort_option.dart';
 
 class SortSheet extends StatelessWidget {
   final SortOption current;
   final void Function(SortOption) onSelect;
-  
+
   const SortSheet({super.key, required this.current, required this.onSelect});
 
   @override
