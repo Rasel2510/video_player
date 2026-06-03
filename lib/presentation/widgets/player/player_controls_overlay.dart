@@ -1,5 +1,5 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/utils/duration_formatter.dart';
 import '../../providers/player_provider.dart';
@@ -285,23 +285,18 @@ class _PlayButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: ClipOval(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _kBlack70,
-              border: Border.all(color: _kWhite30, width: 1),
-            ),
-            child: Icon(
-              isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              size: 28,
-              color: _kWhite100,
-            ),
-          ),
+      child: Container(
+        width: 54,
+        height: 54,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _kBlack70,
+          border: Border.all(color: _kWhite30, width: 1),
+        ),
+        child: Icon(
+          isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+          size: 28,
+          color: _kWhite100,
         ),
       ),
     );
@@ -502,27 +497,20 @@ class _MiniChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-              decoration: BoxDecoration(
-                color: _kBlack40,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: _kWhite12),
-              ),
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: _kWhite100,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.4,
-                ),
-              ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          decoration: BoxDecoration(
+            color: _kBlack40,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: _kWhite12),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _kWhite100,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.4,
             ),
           ),
         ),

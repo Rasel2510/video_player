@@ -54,28 +54,26 @@ class FolderScanner {
     }
 
     final files = <VideoFile>[];
-    await _recurse(dir, files, (count) => data.sendPort.send(count));
+    _recurseSync(dir, files, (count) => data.sendPort.send(count));
     files.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     data.sendPort.send(files);
   }
 
-  static Future<void> _recurse(
+  static void _recurseSync(
     Directory dir,
     List<VideoFile> out,
     void Function(int)? onProgress,
-  ) async {
+  ) {
     try {
-      await for (final entity in dir.list(followLinks: false)) {
+      for (final entity in dir.listSync(followLinks: false)) {
         if (entity is File && VideoFile.isVideoFile(entity.path)) {
           final vf = VideoFile.fromFile(entity);
           if (vf != null && vf.size >= 1024) {
             out.add(vf);
-            // FIX #8: only send progress every 25 files to avoid flooding
-            // the main isolate with thousands of state updates
             if (out.length % 25 == 0) onProgress?.call(out.length);
           }
         } else if (entity is Directory) {
-          await _recurse(entity, out, onProgress);
+          _recurseSync(entity, out, onProgress);
         }
       }
     } catch (_) {}
@@ -112,10 +110,8 @@ class FolderScanner {
     }
 
     final Map<String, List<VideoFile>> folderMap = {};
-    int totalFiles = 0;
-    await _recurseForFolders(dir, folderMap, (count) {
-      totalFiles = count;
-      data.sendPort.send(totalFiles);
+    _recurseForFoldersSync(dir, folderMap, 0, (count) {
+      data.sendPort.send(count);
     });
 
     final folders = folderMap.entries.map((e) {
@@ -128,16 +124,17 @@ class FolderScanner {
     data.sendPort.send(folders);
   }
 
-  static Future<void> _recurseForFolders(
+  static int _recurseForFoldersSync(
     Directory dir,
     Map<String, List<VideoFile>> out,
+    int currentTotal,
     void Function(int)? onProgress,
-  ) async {
+  ) {
     try {
       final List<VideoFile> videosInThisDir = [];
       final List<Directory> subDirs = [];
 
-      await for (final entity in dir.list(followLinks: false)) {
+      for (final entity in dir.listSync(followLinks: false)) {
         if (entity is File && VideoFile.isVideoFile(entity.path)) {
           final vf = VideoFile.fromFile(entity);
           if (vf != null && vf.size >= 1024) videosInThisDir.add(vf);
@@ -149,15 +146,15 @@ class FolderScanner {
 
       if (videosInThisDir.isNotEmpty) {
         out[dir.path] = videosInThisDir;
-        final total = out.values.fold(0, (s, v) => s + v.length);
-        // FIX #8: throttle — only notify every 25 videos found
-        if (total % 25 == 0) onProgress?.call(total);
+        currentTotal += videosInThisDir.length;
+        if (currentTotal % 25 == 0) onProgress?.call(currentTotal);
       }
 
       for (final sub in subDirs) {
-        await _recurseForFolders(sub, out, onProgress);
+        currentTotal = _recurseForFoldersSync(sub, out, currentTotal, onProgress);
       }
     } catch (_) {}
+    return currentTotal;
   }
 
   /// Lists subdirectories and video files in [dirPath] for the folder browser.

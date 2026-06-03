@@ -58,10 +58,10 @@ class VideoTile extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Row(children: [
-                        _FormatBadge(
-                            video.extension.replaceFirst('.', '')),
+                        _FormatBadge(video.extension.replaceFirst('.', '')),
                         const SizedBox(width: 8),
-                        Text(video.sizeLabel, style: context.textStyles.caption),
+                        Text(video.sizeLabel,
+                            style: context.textStyles.caption),
                       ]),
                     ],
                   ),

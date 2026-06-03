@@ -56,6 +56,7 @@ class PlayerState {
   // ── New fields ─────────────────────────────────────────────────────────────
   /// True when the gesture-lock button has been activated.
   final bool isLocked;
+  final bool lockIconVisible;
 
   /// Set to true + errorMessage populated when media_kit reports an error.
   final bool hasError;
@@ -90,6 +91,7 @@ class PlayerState {
     this.selectedSubtitleTrack,
     this.subtitlesEnabled = true,
     this.isLocked = false,
+    this.lockIconVisible = false,
     this.hasError = false,
     this.errorMessage,
     this.autoPlayCountdown,
@@ -137,6 +139,7 @@ class PlayerState {
     SubtitleTrack? selectedSubtitleTrack,
     bool? subtitlesEnabled,
     bool? isLocked,
+    bool? lockIconVisible,
     bool? hasError,
     String? errorMessage,
     int? autoPlayCountdown,
@@ -169,6 +172,7 @@ class PlayerState {
             selectedSubtitleTrack ?? this.selectedSubtitleTrack,
         subtitlesEnabled: subtitlesEnabled ?? this.subtitlesEnabled,
         isLocked: isLocked ?? this.isLocked,
+        lockIconVisible: lockIconVisible ?? this.lockIconVisible,
         hasError: clearError ? false : (hasError ?? this.hasError),
         errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
         autoPlayCountdown:
@@ -183,6 +187,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
   Player? _player;
   VideoController? _videoController;
   Timer? _hideTimer;
+  Timer? _lockIconTimer;
   Timer? _hudTimer;
   Timer? _saveTimer;
   Timer? _autoPlayTimer;
@@ -424,8 +429,33 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void toggleLock() {
     final locked = !state.isLocked;
-    state = state.copyWith(isLocked: locked, controlsVisible: !locked);
-    if (locked) _hideTimer?.cancel();
+    state = state.copyWith(
+      isLocked: locked,
+      controlsVisible: !locked,
+      lockIconVisible: locked,
+    );
+    if (locked) {
+      _hideTimer?.cancel();
+      _startLockIconTimer();
+    } else {
+      _lockIconTimer?.cancel();
+      showControls();
+    }
+  }
+
+  void _startLockIconTimer() {
+    _lockIconTimer?.cancel();
+    _lockIconTimer = Timer(const Duration(seconds: 3), () {
+      if (state.isLocked && !_isDisposing) {
+        state = state.copyWith(lockIconVisible: false);
+      }
+    });
+  }
+
+  void showLockIcon() {
+    if (!state.isLocked) return;
+    state = state.copyWith(lockIconVisible: true);
+    _startLockIconTimer();
   }
 
   // ── Pinch-to-zoom ─────────────────────────────────────────────────────────
@@ -516,6 +546,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
   void _disposeInternal() {
     _saveTimer?.cancel();
     _autoPlayTimer?.cancel();
+    _lockIconTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
@@ -635,6 +666,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _autoPlayTimer?.cancel();
     VolumeService.instance.removeListener();
     _hideTimer?.cancel();
+    _lockIconTimer?.cancel();
     _hudTimer?.cancel();
 
     try {
