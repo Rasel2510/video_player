@@ -26,8 +26,8 @@ class AudioTrackSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Text(
               'AUDIO TRACKS',
               style: TextStyle(
@@ -41,7 +41,7 @@ class AudioTrackSheet extends StatelessWidget {
           ),
           if (tracks.isEmpty)
             Padding(
-              padding: EdgeInsets.all(20),
+              padding: const EdgeInsets.all(20),
               child: Text(
                 'No audio tracks found',
                 style: TextStyle(color: context.colors.textDim, fontSize: 13),
@@ -54,26 +54,33 @@ class AudioTrackSheet extends StatelessWidget {
                 itemCount: tracks.length,
                 itemBuilder: (context, index) {
                   final track = tracks[index];
-                  final isSelected = track == selectedTrack || 
-                      (selectedTrack == null && index == 0); // fallback for default
-                  
+                  final isSelected = track == selectedTrack ||
+                      (selectedTrack == null &&
+                          index == 0); // fallback for default
+
                   return ListTile(
                     dense: true,
                     leading: Icon(
                       Icons.audiotrack_outlined,
                       size: 18,
-                      color: isSelected ? context.colors.accent : context.colors.textDim,
+                      color: isSelected
+                          ? context.colors.accent
+                          : context.colors.textDim,
                     ),
                     title: Text(
                       _getTrackLabel(track, index),
                       style: TextStyle(
-                        color: isSelected ? Colors.white : context.colors.textSecondary,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        color: isSelected
+                            ? Colors.white
+                            : context.colors.textSecondary,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
                         fontSize: 14,
                       ),
                     ),
                     trailing: isSelected
-                        ? Icon(Icons.check, color: context.colors.accent, size: 18)
+                        ? Icon(Icons.check,
+                            color: context.colors.accent, size: 18)
                         : null,
                     onTap: () {
                       onSelect(track);

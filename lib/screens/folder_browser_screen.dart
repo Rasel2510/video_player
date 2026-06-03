@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import 'package:file_picker/file_picker.dart';
@@ -44,10 +43,18 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
   }
 
   Future<void> _loadDir(String path) async {
-    setState(() { _loading = true; _contents = null; });
+    setState(() {
+      _loading = true;
+      _contents = null;
+    });
     // Run on separate isolate-friendly call (listSync is fast enough)
     final contents = await Future(() => FolderScanner.listDirectory(path));
-    if (mounted) setState(() { _contents = contents; _loading = false; });
+    if (mounted) {
+      setState(() {
+        _contents = contents;
+        _loading = false;
+      });
+    }
   }
 
   void _navigateTo(String dirPath) {
@@ -91,7 +98,8 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
                 size: 48, color: Color(0xFF2A2A2A)),
             const SizedBox(height: 16),
             Text('Browse your device folders',
-                style: TextStyle(fontSize: 14, color: context.colors.textSecondary)),
+                style: TextStyle(
+                    fontSize: 14, color: context.colors.textSecondary)),
             const SizedBox(height: 6),
             const Text('Navigate directories to find videos',
                 style: TextStyle(fontSize: 12, color: Color(0xFF333333))),
@@ -99,8 +107,8 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
             GestureDetector(
               onTap: _pickRoot,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 20, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
                   border: Border.all(color: context.colors.accent),
                 ),
@@ -158,8 +166,8 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
                           style: TextStyle(
                             fontSize: 12,
                             color: isLast
-                                ?  context.colors.accent
-                                :  context.colors.textSecondary,
+                                ? context.colors.accent
+                                : context.colors.textSecondary,
                             fontFamily: 'monospace',
                           ),
                         ),
@@ -184,7 +192,8 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
         Expanded(
           child: _loading
               ? Center(
-                  child: CircularProgressIndicator(color: context.colors.accent))
+                  child:
+                      CircularProgressIndicator(color: context.colors.accent))
               : _contents == null
                   ? const SizedBox()
                   : _buildContents(),
@@ -199,21 +208,25 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
     final total = dirs.length + videos.length;
 
     if (total == 0) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.folder_off_outlined, size: 36, color: Color(0xFF2A2A2A)),
-            SizedBox(height: 12),
+            const Icon(Icons.folder_off_outlined,
+                size: 36, color: Color(0xFF2A2A2A)),
+            const SizedBox(height: 12),
             Text('Empty folder',
-                style: TextStyle(fontSize: 13, color: context.colors.textSecondary)),
+                style: TextStyle(
+                    fontSize: 13, color: context.colors.textSecondary)),
           ],
         ),
       );
     }
 
     return ListView.builder(
-      itemCount: dirs.length + videos.length + (dirs.isNotEmpty && videos.isNotEmpty ? 1 : 0),
+      itemCount: dirs.length +
+          videos.length +
+          (dirs.isNotEmpty && videos.isNotEmpty ? 1 : 0),
       itemBuilder: (_, i) {
         // Directories first
         if (i < dirs.length) {
@@ -234,8 +247,10 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
               Text(
                 '${videos.length} VIDEO${videos.length == 1 ? '' : 'S'}',
                 style: TextStyle(
-                  fontSize: 10, color: context.colors.textSecondary,
-                  letterSpacing: 2, fontFamily: 'monospace',
+                  fontSize: 10,
+                  color: context.colors.textSecondary,
+                  letterSpacing: 2,
+                  fontFamily: 'monospace',
                 ),
               ),
             ]),

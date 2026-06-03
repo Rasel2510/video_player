@@ -2,38 +2,23 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_video_player/core/theme/app_theme.dart';
 import 'package:share_plus/share_plus.dart';
-import '../core/theme/app_theme.dart';
-import '../core/utils/duration_formatter.dart';
 import '../models/video_file.dart';
 import '../models/video_folder.dart';
 import '../presentation/providers/folders_provider.dart';
 import '../presentation/widgets/resume_dialog.dart';
-import '../presentation/widgets/thumbnail_widget.dart';
 import '../services/duration_cache_service.dart';
 import '../services/player_preferences_service.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
+import '../presentation/widgets/folder_videos/no_results.dart';
+import '../presentation/widgets/folder_videos/resume_fab.dart';
+import '../presentation/widgets/folder_videos/sort_option.dart';
+import '../presentation/widgets/folder_videos/sort_sheet.dart';
+import '../presentation/widgets/folder_videos/video_card.dart';
+import '../presentation/widgets/folder_videos/video_options_sheet.dart';
 import 'player_screen.dart';
-
-// ── Sort options ──────────────────────────────────────────────────────────────
-
-enum _SortOption { name, dateModified, size, duration }
-
-extension _SortOptionX on _SortOption {
-  String get label => switch (this) {
-        _SortOption.name => 'Name',
-        _SortOption.dateModified => 'Date modified',
-        _SortOption.size => 'File size',
-        _SortOption.duration => 'Duration',
-      };
-  IconData get icon => switch (this) {
-        _SortOption.name => Icons.sort_by_alpha_rounded,
-        _SortOption.dateModified => Icons.access_time_rounded,
-        _SortOption.size => Icons.data_usage_rounded,
-        _SortOption.duration => Icons.timer_rounded,
-      };
-}
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -52,12 +37,12 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   bool _positionsLoaded = false;
 
   // Sort
-  _SortOption _sortBy = _SortOption.name;
+  SortOption _sortBy = SortOption.name;
 
   // FIX: cache the sorted list so _sorted() is O(1) on rebuild frames
   // where nothing changed. Invalidated only when sortBy or deletedPaths changes.
   List<VideoFile>? _sortedCache;
-  _SortOption? _sortedForOption;
+  SortOption? _sortedForOption;
   int _sortedDeletedCount = -1;
 
   // Search inside folder
@@ -84,7 +69,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     final idx = await PlayerPreferencesService.instance.loadSortByIndex();
     if (!mounted) return;
     setState(() {
-      _sortBy = _SortOption.values[idx.clamp(0, _SortOption.values.length - 1)];
+      _sortBy = SortOption.values[idx.clamp(0, SortOption.values.length - 1)];
     });
   }
 
@@ -117,14 +102,14 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     }
     final list = base.where((v) => !_deletedPaths.contains(v.path)).toList();
     switch (_sortBy) {
-      case _SortOption.name:
+      case SortOption.name:
         list.sort(
             (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      case _SortOption.dateModified:
+      case SortOption.dateModified:
         list.sort((a, b) => b.modified.compareTo(a.modified));
-      case _SortOption.size:
+      case SortOption.size:
         list.sort((a, b) => b.size.compareTo(a.size));
-      case _SortOption.duration:
+      case SortOption.duration:
         list.sort((a, b) {
           final da = _durations[a.path] ?? Duration.zero;
           final db = _durations[b.path] ?? Duration.zero;
@@ -227,7 +212,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     final hasResume = (_positions[vf.path] ?? Duration.zero) > Duration.zero;
     showModalBottomSheet(
       context: context,
-      builder: (_) => _VideoOptionsSheet(
+      builder: (_) => VideoOptionsSheet(
         vf: vf,
         hasResume: hasResume,
         onPlay: () {
@@ -322,7 +307,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   void _showSortSheet() {
     showModalBottomSheet(
       context: context,
-      builder: (_) => _SortSheet(
+      builder: (_) => SortSheet(
         current: _sortBy,
         onSelect: (opt) {
           Navigator.pop(context);
@@ -405,7 +390,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
         ],
       ),
       floatingActionButton: last != null
-          ? _ResumeFab(
+          ? ResumeFab(
               position: _positions[last.path]!,
               onTap: () => _openVideo(last, sorted, forceResume: true),
             )
@@ -446,7 +431,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
           Expanded(
             child: display.isEmpty
                 ? _searchQuery.isNotEmpty
-                    ? _NoResults(query: _searchQuery)
+                    ? NoResults(query: _searchQuery)
                     : const SizedBox()
                 : ListView.builder(
                     padding:
@@ -458,7 +443,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
                       final hasResume =
                           savedPos != null && savedPos > Duration.zero;
                       final isNew = newPaths.contains(vf.path);
-                      return _VideoCard(
+                      return VideoCard(
                         vf: vf,
                         savedPos: hasResume ? savedPos : null,
                         totalDur: _durations[vf.path],
@@ -477,410 +462,3 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
 }
 
 // ── No results ────────────────────────────────────────────────────────────────
-
-class _NoResults extends StatelessWidget {
-  final String query;
-  const _NoResults({required this.query});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.search_off_rounded,
-              size: 40, color: context.colors.textMuted),
-          const SizedBox(height: 14),
-          Text(
-            'No videos match "$query"',
-            style: TextStyle(color: context.colors.textSecondary, fontSize: 14),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Video card ────────────────────────────────────────────────────────────────
-
-class _VideoCard extends StatelessWidget {
-  final VideoFile vf;
-  final Duration? savedPos;
-  final Duration? totalDur;
-  final bool isNew;
-  final _SortOption sortBy;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  const _VideoCard({
-    required this.vf,
-    required this.onTap,
-    required this.onLongPress,
-    this.savedPos,
-    this.totalDur,
-    this.isNew = false,
-    this.sortBy = _SortOption.name,
-  });
-
-  String get _subtitle {
-    switch (sortBy) {
-      case _SortOption.dateModified:
-        final d = vf.modified;
-        return '${d.year}-${d.month.toString().padLeft(2, '0')}-'
-            '${d.day.toString().padLeft(2, '0')}';
-      case _SortOption.duration:
-        return totalDur != null
-            ? DurationFormatter.format(totalDur!)
-            : vf.sizeLabel;
-      case _SortOption.name:
-      case _SortOption.size:
-        return vf.sizeLabel;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = (savedPos != null &&
-            totalDur != null &&
-            totalDur!.inMilliseconds > 0)
-        ? (savedPos!.inMilliseconds / totalDur!.inMilliseconds).clamp(0.0, 1.0)
-        : 0.0;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: context.colors.surface,
-        borderRadius: AppRadius.md,
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          onLongPress: onLongPress,
-          splashColor: context.colors.accentSoft,
-          highlightColor: Colors.transparent,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: AppRadius.sm,
-                      child: VideoThumbnailWidget(
-                          videoPath: vf.path, width: 88, height: 58),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            vf.name,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: context.colors.textPrimary,
-                              height: 1.3,
-                              letterSpacing: -0.1,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (isNew) ...[
-                            const SizedBox(height: 3),
-                            const _NewVideoBadge(),
-                          ],
-                          const SizedBox(height: 6),
-                          Row(children: [
-                            _FormatBadge(vf.extension.replaceFirst('.', '')),
-                            const SizedBox(width: 8),
-                            Text(_subtitle, style: context.textStyles.caption),
-                            if (savedPos != null) ...[
-                              const SizedBox(width: 8),
-                              Text(
-                                DurationFormatter.format(savedPos!),
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: context.colors.accent,
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ]),
-                        ],
-                      ),
-                    ),
-                    Icon(Icons.chevron_right_rounded,
-                        size: 18, color: context.colors.textMuted),
-                  ],
-                ),
-              ),
-              if (savedPos != null && progress > 0)
-                LinearProgressIndicator(
-                  value: progress,
-                  minHeight: 2,
-                  backgroundColor: context.colors.progressBg,
-                  valueColor:
-                      AlwaysStoppedAnimation(context.colors.progressFill),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Sort sheet ────────────────────────────────────────────────────────────────
-
-class _SortSheet extends StatelessWidget {
-  final _SortOption current;
-  final void Function(_SortOption) onSelect;
-  const _SortSheet({required this.current, required this.onSelect});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('SORT BY', style: context.textStyles.label),
-          const SizedBox(height: 16),
-          ..._SortOption.values.map((opt) {
-            final selected = opt == current;
-            return Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () => onSelect(opt),
-                borderRadius: AppRadius.sm,
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
-                  child: Row(
-                    children: [
-                      Icon(opt.icon,
-                          size: 20,
-                          color: selected
-                              ? context.colors.accent
-                              : context.colors.textSecondary),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Text(
-                          opt.label,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight:
-                                selected ? FontWeight.w600 : FontWeight.w400,
-                            color: selected
-                                ? context.colors.accent
-                                : context.colors.textPrimary,
-                          ),
-                        ),
-                      ),
-                      if (selected)
-                        Icon(Icons.check_rounded,
-                            size: 18, color: context.colors.accent),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Video options sheet ───────────────────────────────────────────────────────
-
-class _VideoOptionsSheet extends StatelessWidget {
-  final VideoFile vf;
-  final bool hasResume;
-  final VoidCallback onPlay;
-  final VoidCallback onShare;
-  final VoidCallback onCopyPath;
-  final VoidCallback? onClearResume;
-  final VoidCallback onDelete;
-
-  const _VideoOptionsSheet({
-    required this.vf,
-    required this.hasResume,
-    required this.onPlay,
-    required this.onShare,
-    required this.onCopyPath,
-    this.onClearResume,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Text(
-              vf.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: context.colors.textPrimary),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Divider(color: context.colors.divider),
-          const SizedBox(height: 4),
-          _OptionRow(
-              icon: Icons.play_arrow_rounded, label: 'Play', onTap: onPlay),
-          _OptionRow(icon: Icons.share_rounded, label: 'Share', onTap: onShare),
-          _OptionRow(
-              icon: Icons.copy_rounded, label: 'Copy path', onTap: onCopyPath),
-          if (hasResume && onClearResume != null)
-            _OptionRow(
-                icon: Icons.replay_rounded,
-                label: 'Clear resume position',
-                onTap: onClearResume!),
-          _OptionRow(
-              icon: Icons.delete_outline_rounded,
-              label: 'Delete',
-              color: context.colors.errorRed,
-              onTap: onDelete),
-        ],
-      ),
-    );
-  }
-}
-
-class _OptionRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Color? color;
-
-  const _OptionRow({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = color ?? context.colors.textPrimary;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.sm,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
-          child: Row(
-            children: [
-              Icon(icon, size: 20, color: c),
-              const SizedBox(width: 14),
-              Text(label,
-                  style: TextStyle(
-                      fontSize: 14, color: c, fontWeight: FontWeight.w400)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Format badge ──────────────────────────────────────────────────────────────
-
-class _FormatBadge extends StatelessWidget {
-  final String ext;
-  const _FormatBadge(this.ext);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-          color: context.colors.accentSoft, borderRadius: AppRadius.xs),
-      child: Text(
-        ext.toUpperCase(),
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w700,
-          color: context.colors.accent,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
-
-// ── FAB ───────────────────────────────────────────────────────────────────────
-
-class _ResumeFab extends StatelessWidget {
-  final Duration position;
-  final VoidCallback onTap;
-  const _ResumeFab({required this.position, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return FloatingActionButton.extended(
-      onPressed: onTap,
-      icon: const Icon(Icons.play_arrow_rounded, size: 22),
-      label: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Resume',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.2)),
-          Text(
-            DurationFormatter.format(position),
-            style: const TextStyle(
-              fontSize: 10,
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.w400,
-              color: Colors.white70,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── NEW video badge ───────────────────────────────────────────────────────────
-
-class _NewVideoBadge extends StatelessWidget {
-  const _NewVideoBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: context.colors.accentSoft,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: context.colors.accentGlow, width: 1),
-      ),
-      child: Text(
-        'NEW',
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w800,
-          color: context.colors.accent,
-          letterSpacing: 0.8,
-        ),
-      ),
-    );
-  }
-}
