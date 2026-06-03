@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 
 class VolumeSheet extends StatefulWidget {
-  final double volume; // 0.0 – 100.0
+  final double volume; // 0.0 – 200.0
   final void Function(double) onChanged;
 
   const VolumeSheet({
@@ -18,20 +18,29 @@ class VolumeSheet extends StatefulWidget {
 class _VolumeSheetState extends State<VolumeSheet> {
   late double _volume;
 
+  // Orange accent used when volume is boosted above 100%.
+  static const Color _boostColor = Color(0xFFFF8C00);
+  static const Color _boostColorSoft = Color(0x33FF8C00);
+
   @override
   void initState() {
     super.initState();
-    _volume = widget.volume.clamp(0.0, 100.0);
+    _volume = widget.volume.clamp(0.0, 200.0);
   }
 
+  bool get _isBoosted => _volume > 100.0;
+
+  Color _accent(BuildContext context) =>
+      _isBoosted ? _boostColor : context.colors.accent;
+
+  Color _accentSoft(BuildContext context) =>
+      _isBoosted ? _boostColorSoft : context.colors.accentSoft;
+
   void _set(double v) {
-    setState(() => _volume = v.clamp(0.0, 100.0));
+    setState(() => _volume = v.clamp(0.0, 200.0));
     widget.onChanged(_volume);
   }
 
-  // FIX: preset tap now closes the sheet so UX is consistent with the
-  // speed sheet (which closes on tap too). Slider stays open — the user
-  // is actively scrubbing and needs to see the value change in real time.
   void _setAndClose(double v) {
     _set(v);
     Navigator.pop(context);
@@ -39,6 +48,9 @@ class _VolumeSheetState extends State<VolumeSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = _accent(context);
+    final accentSoft = _accentSoft(context);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       child: Column(
@@ -48,7 +60,12 @@ class _VolumeSheetState extends State<VolumeSheet> {
           // ── Header row with Done button ──────────────────────────────────
           Row(
             children: [
-              Text('VOLUME', style: context.textStyles.label),
+              Text(
+                _isBoosted ? 'VOLUME BOOST' : 'VOLUME',
+                style: context.textStyles.label.copyWith(
+                  color: _isBoosted ? _boostColor : null,
+                ),
+              ),
               const Spacer(),
               GestureDetector(
                 onTap: () => Navigator.pop(context),
@@ -82,19 +99,18 @@ class _VolumeSheetState extends State<VolumeSheet> {
               Expanded(
                 child: SliderTheme(
                   data: SliderTheme.of(context).copyWith(
-                    activeTrackColor: context.colors.accent,
+                    activeTrackColor: accent,
                     inactiveTrackColor: context.colors.textDim,
-                    thumbColor: context.colors.accent,
-                    overlayColor: context.colors.accentSoft,
+                    thumbColor: accent,
+                    overlayColor: accentSoft,
                     trackHeight: 4,
                     thumbShape:
                         const RoundSliderThumbShape(enabledThumbRadius: 7),
                   ),
                   child: Slider(
                     min: 0.0,
-                    max: 100.0,
+                    max: 200.0,
                     value: _volume,
-                    // Slider stays open while dragging — user is actively adjusting.
                     onChanged: _set,
                   ),
                 ),
@@ -103,11 +119,11 @@ class _VolumeSheetState extends State<VolumeSheet> {
                   color: context.colors.textMuted, size: 20),
               const SizedBox(width: 12),
               SizedBox(
-                width: 42,
+                width: 48,
                 child: Text(
                   '${_volume.round()}%',
                   style: TextStyle(
-                    color: context.colors.accent,
+                    color: accent,
                     fontFamily: 'monospace',
                     fontWeight: FontWeight.w700,
                     fontSize: 13,
@@ -116,43 +132,131 @@ class _VolumeSheetState extends State<VolumeSheet> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
 
-          // ── Quick-set presets — closes sheet on tap (consistent UX) ──────
+          // ── Boost indicator bar ───────────────────────────────────────────
+          if (_isBoosted)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 4),
+              child: Row(
+                children: [
+                  const SizedBox(width: 32),
+                  Expanded(
+                    child: Container(
+                      height: 2,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            context.colors.accent,
+                            _boostColor,
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(1),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 68),
+                ],
+              ),
+            )
+          else
+            const SizedBox(height: 12),
+
+          // ── Quick-set presets — normal range ──────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [0.0, 25.0, 50.0, 75.0, 100.0].map((v) {
               final active = (_volume - v).abs() < 1.0;
-              return GestureDetector(
-                // FIX: close after preset tap — same as SpeedSheet behaviour.
+              final isBoostPreset = false;
+              return _PresetButton(
+                label: '${v.round()}%',
+                active: active,
+                isBoost: isBoostPreset,
+                accent: active ? context.colors.accent : null,
+                accentSoft: context.colors.accentSoft,
+                border: context.colors.border,
+                muted: context.colors.textMuted,
                 onTap: () => _setAndClose(v),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 120),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: active ? context.colors.accentSoft : Colors.transparent,
-                    border: Border.all(
-                      color: active ? context.colors.accent : context.colors.border,
-                    ),
-                    borderRadius: AppRadius.sm,
-                  ),
-                  child: Text(
-                    '${v.round()}%',
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color:
-                          active ? context.colors.accent : context.colors.textMuted,
-                    ),
-                  ),
-                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 8),
+
+          // ── Boost presets ─────────────────────────────────────────────────
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [125.0, 150.0, 175.0, 200.0].map((v) {
+              final active = (_volume - v).abs() < 1.0;
+              return _PresetButton(
+                label: '${v.round()}%',
+                active: active,
+                isBoost: true,
+                accent: active ? _boostColor : null,
+                accentSoft: _boostColorSoft,
+                border: context.colors.border,
+                muted: context.colors.textMuted,
+                onTap: () => _setAndClose(v),
               );
             }).toList(),
           ),
           const SizedBox(height: 8),
         ],
+      ),
+    );
+  }
+}
+
+class _PresetButton extends StatelessWidget {
+  final String label;
+  final bool active;
+  final bool isBoost;
+  final Color? accent;
+  final Color accentSoft;
+  final Color border;
+  final Color muted;
+  final VoidCallback onTap;
+
+  const _PresetButton({
+    required this.label,
+    required this.active,
+    required this.isBoost,
+    required this.accent,
+    required this.accentSoft,
+    required this.border,
+    required this.muted,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: active ? accentSoft : Colors.transparent,
+          border: Border.all(
+            color: active
+                ? (accent ?? border)
+                : isBoost
+                    ? const Color(0xFF3A2800)
+                    : border,
+          ),
+          borderRadius: AppRadius.sm,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: active
+                ? (accent ?? muted)
+                : isBoost
+                    ? const Color(0xFF8B5E00)
+                    : muted,
+          ),
+        ),
       ),
     );
   }

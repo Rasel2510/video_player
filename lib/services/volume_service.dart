@@ -1,9 +1,15 @@
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 
 /// Controls and reads the device system volume (media stream).
-/// Volume is in 0.0–1.0 range.
+/// Device volume is in 0.0–1.0 range.
+/// For boost above 100% (1.0), caller must separately set media_kit player volume.
 class VolumeService {
-  VolumeService._();
+  VolumeService._() {
+    // Suppress system volume HUD globally for the entire app session.
+    // Must be called once at construction before any setVolume() call.
+    FlutterVolumeController.updateShowSystemUI(false);
+  }
+
   static final instance = VolumeService._();
 
   /// Gets the current device system volume (0.0 – 1.0).
@@ -17,6 +23,7 @@ class VolumeService {
   }
 
   /// Sets the device system volume (0.0 – 1.0).
+  /// Silently changes volume without showing the system volume HUD/slider.
   Future<void> setDeviceVolume(double volume) async {
     try {
       await FlutterVolumeController.setVolume(volume.clamp(0.0, 1.0));
