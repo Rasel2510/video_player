@@ -34,17 +34,17 @@ class AudioTrackSheet extends StatelessWidget {
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 3,
-                color: AppColors.accent,
+                color: context.colors.accent,
                 fontFamily: 'monospace',
               ),
             ),
           ),
           if (tracks.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(20),
               child: Text(
                 'No audio tracks found',
-                style: TextStyle(color: AppColors.textDim, fontSize: 13),
+                style: TextStyle(color: context.colors.textDim, fontSize: 13),
               ),
             )
           else
@@ -62,18 +62,18 @@ class AudioTrackSheet extends StatelessWidget {
                     leading: Icon(
                       Icons.audiotrack_outlined,
                       size: 18,
-                      color: isSelected ? AppColors.accent : AppColors.textDim,
+                      color: isSelected ? context.colors.accent : context.colors.textDim,
                     ),
                     title: Text(
                       _getTrackLabel(track, index),
                       style: TextStyle(
-                        color: isSelected ? Colors.white : AppColors.textSecondary,
+                        color: isSelected ? Colors.white : context.colors.textSecondary,
                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                         fontSize: 14,
                       ),
                     ),
                     trailing: isSelected
-                        ? const Icon(Icons.check, color: AppColors.accent, size: 18)
+                        ? Icon(Icons.check, color: context.colors.accent, size: 18)
                         : null,
                     onTap: () {
                       onSelect(track);

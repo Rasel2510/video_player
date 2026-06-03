@@ -24,8 +24,8 @@ class VideoTile extends StatelessWidget {
       onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.divider)),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: context.colors.divider)),
         ),
         child: Row(
           children: [
@@ -41,22 +41,22 @@ class VideoTile extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(video.name,
-                      style: AppTextStyles.body,
+                      style: context.textStyles.body,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 5),
                   Row(children: [
                     _ExtensionBadge(label: video.extensionLabel),
                     const SizedBox(width: 8),
-                    Text(video.sizeLabel, style: AppTextStyles.mono),
+                    Text(video.sizeLabel, style: context.textStyles.mono),
                   ]),
                 ],
               ),
             ),
             if (trailing != null) trailing!
             else
-              const Icon(Icons.chevron_right,
-                  size: 18, color: AppColors.textDim),
+              Icon(Icons.chevron_right,
+                  size: 18, color: context.colors.textDim),
           ],
         ),
       ),
@@ -71,8 +71,8 @@ class _ExtensionBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
         label,
-        style: AppTextStyles.bodySmall.copyWith(
-          color: AppColors.accent,
+        style: context.textStyles.bodySmall.copyWith(
+          color: context.colors.accent,
           letterSpacing: 1,
           fontFamily: 'monospace',
         ),

@@ -23,11 +23,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   bool _permissionGranted = false;
   bool _checkingPermission = true;
-
-  // Whether we sent the user to the system Settings for manageExternalStorage.
-  // Used to distinguish "returned from Settings" from normal app resume so we
-  // can silently re-check status without showing dialogs again.
   bool _awaitingStorageSettings = false;
+
+  // Search
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  bool _searchOpen = false;
 
   final Map<String, _FolderResume?> _folderResumes = {};
   List<VideoFolder>? _lastFoldersLoaded;
@@ -39,25 +40,25 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _searchCtrl.addListener(() {
+      setState(() => _searchQuery = _searchCtrl.text.trim().toLowerCase());
+    });
     _checkPermissionsAndLoad();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _searchCtrl.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
     if (lifecycle != AppLifecycleState.resumed) return;
-
     if (_permissionGranted) {
-      // Already have permission — trigger a background content check.
       ref.read(foldersProvider.notifier).load(forceScan: false);
     } else if (_awaitingStorageSettings) {
-      // FIX: User may have just returned from the system "All files access"
-      // Settings page. Re-check permission status silently (no new dialogs).
       _awaitingStorageSettings = false;
       _recheckPermissionsAfterSettings();
     }
@@ -65,37 +66,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   // ── Permission helpers ────────────────────────────────────────────────────
 
-  /// FIX: Request permissions SEQUENTIALLY, not all at once with Future.wait.
-  ///
-  /// The old code used Future.wait([manageExternal, storage, videos]) which
-  /// caused two problems:
-  ///   1. manageExternalStorage on Android 11+ redirects to the system Settings
-  ///      screen, backgrounding the app while storage/videos dialogs are still
-  ///      pending. On return, all three "complete" (often as denied) because the
-  ///      OS dismissed the dialogs. The result: _permissionGranted stays false
-  ///      and the permission prompt appears again on every launch.
-  ///   2. POST_NOTIFICATIONS (Android 13+) was never requested, so the media
-  ///      notification silently never appeared.
-  ///
-  /// Fix: ask inline-dialog permissions first, then the Settings-redirect one.
   Future<void> _checkPermissionsAndLoad() async {
     setState(() => _checkingPermission = true);
-
-    // Step 1 — inline dialog permissions (these don't leave the app).
-    // videos = READ_MEDIA_VIDEO on API 33+; storage = READ_EXTERNAL_STORAGE.
     await Permission.videos.request();
     if (!mounted) return;
     await Permission.storage.request();
     if (!mounted) return;
-
-    // Step 2 — notification permission for the media playback notification
-    // (Android 13+ / API 33+). Silently ignored on older versions.
     await Permission.notification.request();
     if (!mounted) return;
-
-    // Step 3 — MANAGE_EXTERNAL_STORAGE (Android 11+ only). This opens the
-    // system "All files access" page; the app goes to background. Set the flag
-    // so didChangeAppLifecycleState knows to re-check on return.
     final manageStatus = await Permission.manageExternalStorage.status;
     if (!manageStatus.isGranted) {
       _awaitingStorageSettings = true;
@@ -103,22 +81,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       if (!mounted) return;
       _awaitingStorageSettings = false;
     }
-
     await _applyPermissionResult();
   }
 
-  /// Silent re-check used when returning from the system Settings page.
-  /// Does NOT show any permission dialogs — only reads current status.
   Future<void> _recheckPermissionsAfterSettings() async {
-    if (_checkingPermission) return; // already in a permission flow
+    if (_checkingPermission) return;
     final results = await Future.wait([
       Permission.manageExternalStorage.isGranted,
       Permission.storage.isGranted,
       Permission.videos.isGranted,
     ]);
     if (!mounted) return;
-    final granted = results.any((g) => g);
-    if (granted && !_permissionGranted) {
+    if (results.any((g) => g) && !_permissionGranted) {
       setState(() => _permissionGranted = true);
       ref.read(foldersProvider.notifier).load(forceScan: false);
     }
@@ -139,7 +113,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (granted) ref.read(foldersProvider.notifier).load(forceScan: false);
   }
 
-  // ── Folder resume helpers ─────────────────────────────────────────────────
+  // ── Folder resume helpers ──────────────────────────────────────────────────
 
   Future<void> _loadFolderResumes(List<VideoFolder> folders) async {
     final futures = folders
@@ -148,7 +122,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       final resume = await _findLastWatched(folder);
       return (folder.path, resume);
     });
-
     final results = await Future.wait(futures);
     if (!mounted) return;
     setState(() {
@@ -164,7 +137,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       return (vf, pos);
     });
     final results = await Future.wait(futures);
-
     VideoFile? best;
     Duration? bestPos;
     for (final (vf, pos) in results) {
@@ -215,6 +187,27 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     }
   }
 
+  // ── Search helpers ─────────────────────────────────────────────────────────
+
+  List<VideoFolder> _filtered(List<VideoFolder> folders) {
+    if (_searchQuery.isEmpty) return folders;
+    return folders
+        .where((f) => f.name.toLowerCase().contains(_searchQuery))
+        .toList();
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _searchOpen = !_searchOpen;
+      if (!_searchOpen) {
+        _searchCtrl.clear();
+        _searchQuery = '';
+      }
+    });
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -239,46 +232,68 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               ref.read(foldersProvider.notifier).load(forceScan: true));
     }
 
-    final folders = state.folders;
+    final allFolders = state.folders;
     final hasMultiStorage = state.storageRoots.length > 1;
 
-    if (!identical(_lastFoldersLoaded, folders)) {
-      _lastFoldersLoaded = folders;
+    if (!identical(_lastFoldersLoaded, allFolders)) {
+      _lastFoldersLoaded = allFolders;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _loadFolderResumes(folders);
+        if (mounted) _loadFolderResumes(allFolders);
       });
     }
 
+    final displayFolders = _filtered(allFolders);
+
     return Column(
       children: [
+        // ── Header ─────────────────────────────────────────────────────────
         _LibraryHeader(
-          folderCount: folders.length,
+          folderCount: allFolders.length,
+          filteredCount: _searchQuery.isNotEmpty ? displayFolders.length : null,
           storageCount: hasMultiStorage ? state.storageRoots.length : null,
           isScanning: state.isScanning,
           fromCache: state.fromCache,
+          searchOpen: _searchOpen,
+          searchCtrl: _searchCtrl,
+          onToggleSearch: _toggleSearch,
           onRescan: state.isScanning
               ? null
               : () => ref.read(foldersProvider.notifier).load(forceScan: true),
         ),
+
+        // ── Folder list with pull-to-refresh ────────────────────────────────
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            itemCount: folders.length,
-            itemBuilder: (_, i) {
-              final folder = folders[i];
-              final resume = _folderResumes[folder.path];
-              final isExternal =
-                  hasMultiStorage && !folder.path.contains('/emulated/');
-              return _FolderCard(
-                folder: folder,
-                isExternal: isExternal,
-                resume: resume,
-                onTap: () => _openFolder(folder),
-                onResume: resume != null
-                    ? () => _resumeFolder(folder, resume)
-                    : null,
-              );
-            },
+          child: RefreshIndicator(
+            onRefresh: () =>
+                ref.read(foldersProvider.notifier).load(forceScan: true),
+            color: context.colors.accent,
+            backgroundColor: context.colors.surface,
+            child: displayFolders.isEmpty
+                ? _NoResults(query: _searchQuery)
+                : ListView.builder(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    itemCount: displayFolders.length,
+                    itemBuilder: (_, i) {
+                      final folder = displayFolders[i];
+                      final resume = _folderResumes[folder.path];
+                      final isExternal = hasMultiStorage &&
+                          !folder.path.contains('/emulated/');
+                      final isNew = ref
+                          .watch(foldersProvider.select((s) => s.newPaths))
+                          .contains(folder.path);
+                      return _FolderCard(
+                        folder: folder,
+                        isExternal: isExternal,
+                        isNew: isNew,
+                        resume: resume,
+                        onTap: () => _openFolder(folder),
+                        onResume: resume != null
+                            ? () => _resumeFolder(folder, resume)
+                            : null,
+                      );
+                    },
+                  ),
           ),
         ),
       ],
@@ -294,14 +309,164 @@ class _FolderResume {
   const _FolderResume(this.video, this.position);
 }
 
+// ── Library header ────────────────────────────────────────────────────────────
+
+class _LibraryHeader extends StatelessWidget {
+  final int folderCount;
+  final int? filteredCount;
+  final int? storageCount;
+  final bool isScanning;
+  final bool fromCache;
+  final bool searchOpen;
+  final TextEditingController searchCtrl;
+  final VoidCallback onToggleSearch;
+  final VoidCallback? onRescan;
+
+  const _LibraryHeader({
+    required this.folderCount,
+    required this.isScanning,
+    required this.fromCache,
+    required this.searchOpen,
+    required this.searchCtrl,
+    required this.onToggleSearch,
+    required this.onRescan,
+    this.filteredCount,
+    this.storageCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 12, 6),
+          child: Row(
+            children: [
+              if (filteredCount != null)
+                Text(
+                  '$filteredCount of $folderCount folder${folderCount == 1 ? '' : 's'}',
+                  style: context.textStyles.label,
+                )
+              else
+                Text(
+                  '$folderCount folder${folderCount == 1 ? '' : 's'}',
+                  style: context.textStyles.label,
+                ),
+              if (storageCount != null) ...[
+                const SizedBox(width: 8),
+                Text('· $storageCount storages',
+                    style: context.textStyles.caption),
+              ],
+              const Spacer(),
+              if (isScanning)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 1.5),
+                ),
+              if (fromCache && !isScanning)
+                Text('cached', style: context.textStyles.caption),
+              // Search toggle
+              IconButton(
+                icon: Icon(
+                  searchOpen ? Icons.search_off_rounded : Icons.search_rounded,
+                  size: 20,
+                  color: searchOpen
+                      ? context.colors.accent
+                      : context.colors.textSecondary,
+                ),
+                onPressed: onToggleSearch,
+                tooltip: searchOpen ? 'Close search' : 'Search folders',
+                visualDensity: VisualDensity.compact,
+              ),
+              TextButton(
+                onPressed: onRescan,
+                child: Text(
+                  'Rescan',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isScanning
+                        ? context.colors.textMuted
+                        : context.colors.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Animated search bar
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: searchOpen
+              ? Padding(
+                  key: const ValueKey('search'),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: TextField(
+                    controller: searchCtrl,
+                    autofocus: true,
+                    textInputAction: TextInputAction.search,
+                    style: TextStyle(
+                        color: context.colors.textPrimary, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: 'Search folders…',
+                      prefixIcon: Icon(Icons.search_rounded,
+                          size: 18, color: context.colors.textMuted),
+                      suffixIcon: searchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: Icon(Icons.clear_rounded,
+                                  size: 16, color: context.colors.textMuted),
+                              onPressed: searchCtrl.clear,
+                            )
+                          : null,
+                    ),
+                  ),
+                )
+              : const SizedBox(key: ValueKey('no-search'), height: 0),
+        ),
+      ],
+    );
+  }
+}
+
+// ── No results ────────────────────────────────────────────────────────────────
+
+class _NoResults extends StatelessWidget {
+  final String query;
+  const _NoResults({required this.query});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 80),
+          child: Center(
+            child: Column(
+              children: [
+                Icon(Icons.search_off_rounded,
+                    size: 40, color: context.colors.textMuted),
+                SizedBox(height: 14),
+                Text(
+                  'No folders match "$query"',
+                  style: TextStyle(
+                      color: context.colors.textSecondary, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ── Folder card ───────────────────────────────────────────────────────────────
 
 class _FolderCard extends StatelessWidget {
   final VideoFolder folder;
   final bool isExternal;
-  // FIX: Removed isNowPlaying — the "NOW PLAYING" overlay on folder cards
-  // was unwanted (user request) and also caused unnecessary Riverpod rebuilds
-  // of the entire folder list on every player state change.
+  final bool isNew;
   final _FolderResume? resume;
   final VoidCallback onTap;
   final VoidCallback? onResume;
@@ -310,6 +475,7 @@ class _FolderCard extends StatelessWidget {
     required this.folder,
     required this.isExternal,
     required this.onTap,
+    this.isNew = false,
     this.resume,
     this.onResume,
   });
@@ -319,71 +485,63 @@ class _FolderCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: AppColors.surface,
+        color: context.colors.surface,
         borderRadius: AppRadius.md,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
-          splashColor: AppColors.accentSoft,
+          splashColor: context.colors.accentSoft,
           highlightColor: Colors.transparent,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
             child: Row(
               children: [
-                // Folder icon container
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: isExternal
-                        ? const Color(0xFF0F2020)
-                        : AppColors.folderTint,
-                    borderRadius: AppRadius.sm,
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Icon(
-                        Icons.folder_rounded,
-                        size: 26,
-                        color: isExternal
-                            ? const Color(0xFF40AAAA)
-                            : AppColors.folderIcon,
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(
+                      Icons.folder_rounded,
+                      size: 32,
+                      color: isExternal
+                          ? const Color(0xFF40AAAA)
+                          : context.colors.folderIcon,
+                    ),
+                    if (isExternal)
+                      const Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Icon(Icons.sd_card_rounded,
+                            size: 10, color: Color(0xFF40AAAA)),
                       ),
-                      if (isExternal)
-                        const Positioned(
-                          right: 4,
-                          bottom: 4,
-                          child: Icon(Icons.sd_card_rounded,
-                              size: 10, color: Color(0xFF40AAAA)),
-                        ),
-                    ],
-                  ),
+                  ],
                 ),
                 const SizedBox(width: 14),
-
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         folder.name,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w500,
-                          color: AppColors.textPrimary,
+                          color: context.colors.textPrimary,
                           letterSpacing: -0.2,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      if (isNew) ...[
+                        const SizedBox(height: 2),
+                        const _NewBadge(),
+                      ],
                       const SizedBox(height: 3),
                       Row(
                         children: [
                           Text(
                             '${folder.videoCount} '
                             'video${folder.videoCount == 1 ? '' : 's'}',
-                            style: AppTextStyles.bodySmall,
+                            style: context.textStyles.bodySmall,
                           ),
                           if (isExternal) ...[
                             const SizedBox(width: 8),
@@ -407,17 +565,12 @@ class _FolderCard extends StatelessWidget {
                     ],
                   ),
                 ),
-
                 if (onResume != null && resume != null) ...[
-                  _ResumePill(
-                    position: resume!.position,
-                    onTap: onResume!,
-                  ),
-                  const SizedBox(width: 10),
+                  _ResumePill(position: resume!.position, onTap: onResume!),
+                  SizedBox(width: 10),
                 ],
-
-                const Icon(Icons.chevron_right_rounded,
-                    size: 18, color: AppColors.textMuted),
+                Icon(Icons.chevron_right_rounded,
+                    size: 18, color: context.colors.textMuted),
               ],
             ),
           ),
@@ -442,85 +595,27 @@ class _ResumePill extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: AppColors.accentSoft,
+          color: context.colors.accentSoft,
           borderRadius: AppRadius.xl,
-          border: Border.all(color: AppColors.accentGlow, width: 1),
+          border: Border.all(color: context.colors.accentGlow, width: 1),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.play_arrow_rounded,
-                size: 13, color: AppColors.accent),
-            const SizedBox(width: 4),
+            Icon(Icons.play_arrow_rounded,
+                size: 13, color: context.colors.accent),
+            SizedBox(width: 4),
             Text(
               DurationFormatter.format(position),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 10,
-                color: AppColors.accent,
+                color: context.colors.accent,
                 fontWeight: FontWeight.w600,
                 fontFamily: 'monospace',
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-// ── Library header ────────────────────────────────────────────────────────────
-
-class _LibraryHeader extends StatelessWidget {
-  final int folderCount;
-  final int? storageCount;
-  final bool isScanning;
-  final bool fromCache;
-  final VoidCallback? onRescan;
-
-  const _LibraryHeader({
-    required this.folderCount,
-    required this.isScanning,
-    required this.fromCache,
-    required this.onRescan,
-    this.storageCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 12, 6),
-      child: Row(
-        children: [
-          Text(
-            '$folderCount folder${folderCount == 1 ? '' : 's'}',
-            style: AppTextStyles.label,
-          ),
-          if (storageCount != null) ...[
-            const SizedBox(width: 8),
-            Text('· $storageCount storages', style: AppTextStyles.caption),
-          ],
-          const Spacer(),
-          if (isScanning)
-            const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 1.5),
-            ),
-          if (fromCache && !isScanning)
-            const Text('cached', style: AppTextStyles.caption),
-          TextButton(
-            onPressed: onRescan,
-            child: Text(
-              'Rescan',
-              style: TextStyle(
-                fontSize: 12,
-                color: isScanning
-                    ? AppColors.textMuted
-                    : AppColors.textSecondary,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -533,14 +628,12 @@ class _PermissionPrompt extends StatelessWidget {
   const _PermissionPrompt({required this.onRetry});
 
   @override
-  Widget build(BuildContext context) {
-    return _CenteredPrompt(
-      icon: Icons.lock_outline_rounded,
-      title: 'Storage access needed',
-      subtitle: 'Grant permission to scan your device for videos',
-      action: _PrimaryButton(label: 'Grant Permission', onTap: onRetry),
-    );
-  }
+  Widget build(BuildContext context) => _CenteredPrompt(
+        icon: Icons.lock_outline_rounded,
+        title: 'Storage access needed',
+        subtitle: 'Grant permission to scan your device for videos',
+        action: _PrimaryButton(label: 'Grant Permission', onTap: onRetry),
+      );
 }
 
 class _ScanningScreen extends StatelessWidget {
@@ -561,13 +654,13 @@ class _ScanningScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           Text('Scanning device…',
-              style: AppTextStyles.body
-                  .copyWith(color: AppColors.textSecondary)),
+              style: context.textStyles.body
+                  .copyWith(color: context.colors.textSecondary)),
           const SizedBox(height: 6),
-          Text('$progress videos found', style: AppTextStyles.caption),
+          Text('$progress videos found', style: context.textStyles.caption),
           if (storageCount > 1) ...[
             const SizedBox(height: 4),
-            Text('$storageCount storages', style: AppTextStyles.caption),
+            Text('$storageCount storages', style: context.textStyles.caption),
           ],
         ],
       ),
@@ -580,14 +673,12 @@ class _EmptyLibrary extends StatelessWidget {
   const _EmptyLibrary({required this.onScan});
 
   @override
-  Widget build(BuildContext context) {
-    return _CenteredPrompt(
-      icon: Icons.video_library_outlined,
-      title: 'No videos found',
-      subtitle: 'Tap below to scan your device',
-      action: _PrimaryButton(label: 'Scan now', onTap: onScan),
-    );
-  }
+  Widget build(BuildContext context) => _CenteredPrompt(
+        icon: Icons.video_library_outlined,
+        title: 'No videos found',
+        subtitle: 'Pull down to refresh, or tap below to scan',
+        action: _PrimaryButton(label: 'Scan now', onTap: onScan),
+      );
 }
 
 class _CenteredPrompt extends StatelessWidget {
@@ -614,21 +705,19 @@ class _CenteredPrompt extends StatelessWidget {
             Container(
               width: 64,
               height: 64,
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 28, color: AppColors.textMuted),
+              decoration: BoxDecoration(
+                  color: context.colors.surface, shape: BoxShape.circle),
+              child: Icon(icon, size: 28, color: context.colors.textMuted),
             ),
             const SizedBox(height: 20),
             Text(title,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary)),
-            const SizedBox(height: 6),
+                    color: context.colors.textPrimary)),
+            SizedBox(height: 6),
             Text(subtitle,
-                style: AppTextStyles.bodySmall,
+                style: context.textStyles.bodySmall,
                 textAlign: TextAlign.center),
             const SizedBox(height: 28),
             action,
@@ -649,14 +738,40 @@ class _PrimaryButton extends StatelessWidget {
     return FilledButton(
       onPressed: onTap,
       style: FilledButton.styleFrom(
-        backgroundColor: AppColors.accent,
+        backgroundColor: context.colors.accent,
         foregroundColor: Colors.white,
         shape: const StadiumBorder(),
         padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
-        textStyle:
-            const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
       ),
       child: Text(label),
+    );
+  }
+}
+
+// ── NEW badge ─────────────────────────────────────────────────────────────────
+
+class _NewBadge extends StatelessWidget {
+  const _NewBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: context.colors.accentSoft,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: context.colors.accentGlow, width: 1),
+      ),
+      child: const Text(
+        'NEW',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          color: context.colors.accent,
+          letterSpacing: 0.8,
+        ),
+      ),
     );
   }
 }

@@ -49,6 +49,34 @@ const _cacheTtl     = Duration(hours: 12);
 // new folders/files without doing a full scan.
 const _snapshotKey  = 'folder_scan_snapshot_v2';
 
+// Paths seen by the user (acknowledged). New ones get a "NEW" badge.
+const _seenPathsKey     = 'folder_scan_seen_paths_v1';
+const _seenPathsInitKey = 'folder_scan_seen_paths_init_v1'; // true once written
+
+/// Returns null on fresh install (never scanned before).
+/// Returns the set of previously seen paths on subsequent scans.
+Future<Set<String>?> _loadSeenPaths() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    // If we have never written seen-paths, this is a fresh install.
+    if (prefs.getBool(_seenPathsInitKey) != true) return null;
+    final raw = prefs.getString(_seenPathsKey);
+    if (raw == null) return {};
+    final list = jsonDecode(raw) as List<dynamic>;
+    return list.cast<String>().toSet();
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _saveSeenPaths(Set<String> paths) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_seenPathsInitKey, true);
+    await prefs.setString(_seenPathsKey, jsonEncode(paths.toList()));
+  } catch (_) {}
+}
+
 Future<List<VideoFolder>?> _loadCache() async {
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -161,6 +189,8 @@ class FoldersState {
   final int scanProgress;
   final bool fromCache;
   final List<String> storageRoots; // all mounted roots found
+  /// Paths (folder paths + video file paths) that are new since last scan.
+  final Set<String> newPaths;
 
   const FoldersState({
     this.folders    = const [],
@@ -168,6 +198,7 @@ class FoldersState {
     this.scanProgress = 0,
     this.fromCache  = false,
     this.storageRoots = const [],
+    this.newPaths = const {},
   });
 
   FoldersState copyWith({
@@ -176,6 +207,7 @@ class FoldersState {
     int?  scanProgress,
     bool? fromCache,
     List<String>? storageRoots,
+    Set<String>? newPaths,
   }) =>
       FoldersState(
         folders:      folders      ?? this.folders,
@@ -183,6 +215,7 @@ class FoldersState {
         scanProgress: scanProgress ?? this.scanProgress,
         fromCache:    fromCache    ?? this.fromCache,
         storageRoots: storageRoots ?? this.storageRoots,
+        newPaths:     newPaths     ?? this.newPaths,
       );
 }
 
@@ -270,13 +303,75 @@ class FoldersNotifier extends Notifier<FoldersState> {
     }).toList()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
+    // Compute new paths only when a previous scan exists.
+    // null means fresh install → save all as seen, show no badges.
+    final seenPaths = await _loadSeenPaths();
+    final Set<String> newPaths = {};
+    if (seenPaths != null && seenPaths.isNotEmpty) {
+      for (final folder in merged) {
+        if (!seenPaths.contains(folder.path)) {
+          newPaths.add(folder.path);
+        }
+        for (final video in folder.videos) {
+          if (!seenPaths.contains(video.path)) {
+            newPaths.add(video.path);
+            newPaths.add(folder.path); // mark the parent folder new too
+          }
+        }
+      }
+    }
+
+    // Save all current paths as seen
+    final allPaths = <String>{};
+    for (final folder in merged) {
+      allPaths.add(folder.path);
+      for (final video in folder.videos) {
+        allPaths.add(video.path);
+      }
+    }
+    await _saveSeenPaths(allPaths);
+
     state = state.copyWith(
       folders: merged,
       isScanning: false,
       fromCache: false,
+      newPaths: newPaths,
     );
 
     await _saveCache(merged);
+  }
+
+  /// Called when a user opens a video. Removes the video path from newPaths,
+  /// and also removes the parent folder if none of its videos are new anymore.
+  void markSeen(String videoPath) {
+    if (!state.newPaths.contains(videoPath)) return;
+    final updated = Set<String>.from(state.newPaths)..remove(videoPath);
+
+    // Find the parent folder — if it has no more new videos, remove it too.
+    for (final folder in state.folders) {
+      if (folder.videos.any((v) => v.path == videoPath)) {
+        final folderStillNew =
+            folder.videos.any((v) => updated.contains(v.path));
+        if (!folderStillNew) updated.remove(folder.path);
+        break;
+      }
+    }
+
+    state = state.copyWith(newPaths: updated);
+
+    // Persist so the badge doesn't come back after app restart.
+    _persistSeenRemoval(videoPath);
+  }
+
+  Future<void> _persistSeenRemoval(String videoPath) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_seenPathsKey);
+      if (raw == null) return;
+      final list = (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
+      list.add(videoPath); // ensure it's marked seen on disk too
+      await prefs.setString(_seenPathsKey, jsonEncode(list.toList()));
+    } catch (_) {}
   }
 
   void reset() => state = const FoldersState();

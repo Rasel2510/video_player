@@ -87,9 +87,9 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
   }
 
   Widget _placeholder() => Container(
-        color: AppColors.elevated,
-        child: const Icon(Icons.movie_outlined,
-            color: AppColors.textMuted, size: 22),
+        color: context.colors.elevated,
+        child: Icon(Icons.movie_outlined,
+            color: context.colors.textMuted, size: 22),
       );
 }
 

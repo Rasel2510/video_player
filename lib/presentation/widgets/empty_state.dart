@@ -23,13 +23,13 @@ class EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 48, color: AppColors.border),
+          Icon(icon, size: 48, color: context.colors.border),
           const SizedBox(height: 16),
           Text(title,
-              style: AppTextStyles.body.copyWith(color: AppColors.textMuted)),
+              style: context.textStyles.body.copyWith(color: context.colors.textMuted)),
           const SizedBox(height: 6),
           Text(subtitle,
-              style: AppTextStyles.bodySmall.copyWith(color: AppColors.textDim)),
+              style: context.textStyles.bodySmall.copyWith(color: context.colors.textDim)),
           if (actionLabel != null) ...[
             const SizedBox(height: 24),
             _AccentButton(label: actionLabel!, onTap: onAction!),
@@ -51,9 +51,9 @@ class _AccentButton extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           decoration: BoxDecoration(
-            border: Border.all(color: AppColors.accent),
+            border: Border.all(color: context.colors.accent),
           ),
-          child: Text(label, style: AppTextStyles.label),
+          child: Text(label, style: context.textStyles.label),
         ),
       );
 }

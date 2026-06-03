@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import '../core/theme/app_theme.dart';
 import '../models/video_file.dart';
 import '../presentation/widgets/resume_dialog.dart';
+import '../presentation/providers/theme_provider.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
 import 'library_screen.dart';
 import 'player_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   Future<void> _pickAndOpenVideo(BuildContext context) async {
@@ -48,17 +50,22 @@ class HomeScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeProvider);
+    final themeIcon = themeMode == ThemeMode.light 
+        ? Icons.light_mode_rounded 
+        : (themeMode == ThemeMode.dark ? Icons.dark_mode_rounded : Icons.brightness_auto_rounded);
+
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: context.colors.bg,
       appBar: AppBar(
         title: Row(
           children: [
             Container(
               width: 7,
               height: 7,
-              decoration: const BoxDecoration(
-                color: AppColors.accent,
+              decoration: BoxDecoration(
+                color: context.colors.accent,
                 shape: BoxShape.circle,
               ),
             ),
@@ -67,6 +74,11 @@ class HomeScreen extends StatelessWidget {
           ],
         ),
         actions: [
+          IconButton(
+            icon: Icon(themeIcon),
+            tooltip: 'Toggle Theme',
+            onPressed: () => ref.read(themeProvider.notifier).toggleTheme(),
+          ),
           IconButton(
             icon: const Icon(Icons.add_rounded),
             tooltip: 'Open file',

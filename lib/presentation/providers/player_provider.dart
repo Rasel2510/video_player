@@ -5,13 +5,12 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import '../../core/constants.dart';
 import '../../models/video_file.dart';
+import '../../services/brightness_service.dart';
 import '../../services/duration_cache_service.dart';
-import '../../services/media_session_service.dart';
+import '../../services/player_preferences_service.dart';
 import '../../services/position_service.dart';
 import '../../services/volume_service.dart';
-import '../../services/brightness_service.dart';
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
@@ -20,8 +19,8 @@ enum FitMode { contain, cover, fill, natural }
 extension FitModeX on FitMode {
   String get label => switch (this) {
         FitMode.contain => 'FIT',
-        FitMode.cover => 'CROP',
-        FitMode.fill => 'FILL',
+        FitMode.cover   => 'CROP',
+        FitMode.fill    => 'FILL',
         FitMode.natural => 'AUTO',
       };
   FitMode get next => FitMode.values[(index + 1) % FitMode.values.length];
@@ -54,6 +53,20 @@ class PlayerState {
   final SubtitleTrack? selectedSubtitleTrack;
   final bool subtitlesEnabled;
 
+  // ── New fields ─────────────────────────────────────────────────────────────
+  /// True when the gesture-lock button has been activated.
+  final bool isLocked;
+
+  /// Set to true + errorMessage populated when media_kit reports an error.
+  final bool hasError;
+  final String? errorMessage;
+
+  /// Non-null when auto-play countdown is running. Counts 5→4→3→2→1 then fires.
+  final int? autoPlayCountdown;
+
+  /// Pinch-to-zoom scale factor (1.0 = normal, clamped to 0.5–4.0).
+  final double zoomScale;
+
   const PlayerState({
     this.isInitialized = false,
     this.isPlaying = false,
@@ -76,6 +89,11 @@ class PlayerState {
     this.subtitleTracks = const [],
     this.selectedSubtitleTrack,
     this.subtitlesEnabled = true,
+    this.isLocked = false,
+    this.hasError = false,
+    this.errorMessage,
+    this.autoPlayCountdown,
+    this.zoomScale = 1.0,
   });
 
   double get progress => duration.inMilliseconds > 0
@@ -92,6 +110,9 @@ class PlayerState {
       currentIndex >= 0 && currentIndex < folderVideos.length
           ? folderVideos[currentIndex]
           : null;
+
+  VideoFile? get nextVideo =>
+      hasNext ? folderVideos[currentIndex + 1] : null;
 
   PlayerState copyWith({
     bool? isInitialized,
@@ -115,6 +136,14 @@ class PlayerState {
     List<SubtitleTrack>? subtitleTracks,
     SubtitleTrack? selectedSubtitleTrack,
     bool? subtitlesEnabled,
+    bool? isLocked,
+    bool? hasError,
+    String? errorMessage,
+    int? autoPlayCountdown,
+    double? zoomScale,
+    // Sentinel to allow explicitly nulling autoPlayCountdown
+    bool clearAutoPlay = false,
+    bool clearError = false,
   }) =>
       PlayerState(
         isInitialized: isInitialized ?? this.isInitialized,
@@ -139,6 +168,12 @@ class PlayerState {
         selectedSubtitleTrack:
             selectedSubtitleTrack ?? this.selectedSubtitleTrack,
         subtitlesEnabled: subtitlesEnabled ?? this.subtitlesEnabled,
+        isLocked: isLocked ?? this.isLocked,
+        hasError: clearError ? false : (hasError ?? this.hasError),
+        errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+        autoPlayCountdown:
+            clearAutoPlay ? null : (autoPlayCountdown ?? this.autoPlayCountdown),
+        zoomScale: zoomScale ?? this.zoomScale,
       );
 }
 
@@ -150,16 +185,14 @@ class PlayerNotifier extends Notifier<PlayerState> {
   Timer? _hideTimer;
   Timer? _hudTimer;
   Timer? _saveTimer;
+  Timer? _autoPlayTimer;
   String? _currentPath;
   double _savedBrightness = 0.5;
+  bool _hasStartedPlaying = false;
   final List<StreamSubscription> _subs = [];
 
   // Guards against notification panel callbacks after dispose begins.
   bool _isDisposing = false;
-
-
-  // FIX #14: use shared constant — single source of truth for channel name
-  static const _mediaChannel = MethodChannel(AppConstants.mediaSessionChannel);
 
   @override
   PlayerState build() => const PlayerState();
@@ -176,12 +209,22 @@ class PlayerNotifier extends Notifier<PlayerState> {
     int initialIndex = -1,
   }) async {
     _isDisposing = false;
+    _hasStartedPlaying = false;
+
+    // Load persisted preferences.
+    final fitModeIdx = await PlayerPreferencesService.instance.loadFitModeIndex();
+    final savedSpeed = await PlayerPreferencesService.instance.loadSpeed();
+    final fitMode    = FitMode.values[fitModeIdx.clamp(0, FitMode.values.length - 1)];
+
     // Read device system volume (0.0–1.0), store as 0–100 in state for display.
     final deviceVol = await VolumeService.instance.getDeviceVolume();
+
     state = PlayerState(
       folderVideos: folderVideos,
       currentIndex: initialIndex,
       volume: deviceVol * 100,
+      fitMode: fitMode,
+      playbackSpeed: savedSpeed,
     );
 
     _disposeInternal();
@@ -189,41 +232,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     _player = Player();
     _videoController = VideoController(_player!);
-
-    // Register handler once. Guards against _isDisposing before touching player.
-    _mediaChannel.setMethodCallHandler((call) async {
-      // FIX: guard must be the very first thing — the player or its state may
-      // already be torn down by the time this callback fires from native.
-      if (_isDisposing || _player == null) return;
-      try {
-        switch (call.method) {
-          case 'onMediaAction':
-            // FIX: cast safely — a bad argument type must not crash the handler.
-            final action = call.arguments as String? ?? '';
-            switch (action) {
-              case 'play':
-              case 'pause':
-                togglePlay();
-                break;
-              case 'next':
-                playNext();
-                break;
-              case 'previous':
-                playPrevious();
-                break;
-            }
-            break;
-          case 'onMediaSeek':
-            final ms = call.arguments as int? ?? 0;
-            _player?.seek(Duration(milliseconds: ms));
-            break;
-        }
-      } catch (e) {
-        // Swallow any unexpected errors from notification button presses.
-        // The player may be in a transient state (loading, buffering, error)
-        // that throws internally — this must never propagate to Flutter engine.
-      }
-    });
 
     try {
       _savedBrightness = await ScreenBrightness().current;
@@ -236,15 +244,12 @@ class PlayerNotifier extends Notifier<PlayerState> {
       }
     } catch (_) {}
 
-    // Always run media_kit at full internal volume — device volume controls output level.
+    // Always run media_kit at full internal volume — device volume controls output.
     await _player!.setVolume(100);
-    await _player!.setRate(state.playbackSpeed);
+    await _player!.setRate(savedSpeed);
 
-    // Listen for hardware/notification-panel volume changes and keep state in sync.
     VolumeService.instance.addListener((vol) {
-      if (!_isDisposing) {
-        state = state.copyWith(volume: vol * 100);
-      }
+      if (!_isDisposing) state = state.copyWith(volume: vol * 100);
     });
 
     _listenStreams(onReady: () {
@@ -259,14 +264,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     await _player!.open(Media(filePath));
     await WakelockPlus.enable();
-
-    await MediaSessionService.setMetadata(
-      title: filePath.split('/').last,
-      duration: Duration.zero,
-    );
   }
 
-  // ── Stream listeners ──────────────────────────────────────────────────────
+  // ── Stream listeners ───────────────────────────────────────────────────────
 
   void _listenStreams({required VoidCallback onReady}) {
     bool frameReady = false;
@@ -278,12 +278,18 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     _subs.add(_player!.stream.playing.listen((v) {
       state = state.copyWith(isPlaying: v);
-      _updateLockScreenState();
-      if (v) markReady();
+      if (v) {
+        markReady();
+        _hasStartedPlaying = true;
+      } else if (_hasStartedPlaying && !_isDisposing) {
+        // Paused by user or end-of-file — persist position immediately.
+        _savePosition();
+      }
     }));
 
     _subs.add(_player!.stream.position.listen((v) {
       state = state.copyWith(position: v);
+      // Throttled periodic save (5-second debounce).
       _saveTimer?.cancel();
       _saveTimer = Timer(const Duration(seconds: 5), _savePosition);
     }));
@@ -294,7 +300,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
       if (_currentPath != null) {
         DurationCacheService.instance.saveDuration(_currentPath!, v);
       }
-      _setLockScreenMetadata();
     }));
 
     _subs.add(_player!.stream.rate
@@ -315,31 +320,58 @@ class PlayerNotifier extends Notifier<PlayerState> {
       if (w != null && w > 0) markReady();
     }));
 
+    // Auto-play next video when current one finishes.
+    _subs.add(_player!.stream.completed.listen((completed) {
+      if (completed && !_isDisposing && state.hasNext) {
+        _startAutoPlayCountdown();
+      }
+    }));
+
+    // Surface any media errors so the UI can show a useful message.
+    _subs.add(_player!.stream.error.listen((error) {
+      if (!_isDisposing && error.isNotEmpty) {
+        state = state.copyWith(
+          hasError: true,
+          errorMessage: error,
+          isInitialized: true, // stop the loading spinner
+        );
+      }
+    }));
+
+    // Safety-net: mark ready after 4 s even if no frame event fires.
     Future.delayed(const Duration(seconds: 4), markReady);
   }
 
-  // ── Lock screen helpers ───────────────────────────────────────────────────
-
-  void _setLockScreenMetadata() {
-    final fileName = _currentPath?.split('/').last ?? '';
-    MediaSessionService.setMetadata(
-      title: fileName,
-      duration: state.duration,
-    );
-  }
-
-  void _updateLockScreenState() {
-    MediaSessionService.setPlaybackState(
-      isPlaying: state.isPlaying,
-      position: state.position,
-      speed: state.playbackSpeed,
-    );
-  }
+  // ── Position save ──────────────────────────────────────────────────────────
 
   Future<void> _savePosition() async {
     if (_currentPath == null) return;
     await PositionService.instance
         .save(_currentPath!, state.position, state.duration);
+  }
+
+  // ── Auto-play countdown ────────────────────────────────────────────────────
+
+  void _startAutoPlayCountdown() {
+    _autoPlayTimer?.cancel();
+    int countdown = 5;
+    state = state.copyWith(autoPlayCountdown: countdown);
+
+    _autoPlayTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      countdown--;
+      if (countdown <= 0) {
+        t.cancel();
+        state = state.copyWith(clearAutoPlay: true);
+        playNext();
+      } else {
+        state = state.copyWith(autoPlayCountdown: countdown);
+      }
+    });
+  }
+
+  void cancelAutoPlay() {
+    _autoPlayTimer?.cancel();
+    state = state.copyWith(clearAutoPlay: true);
   }
 
   // ── Next / Previous ────────────────────────────────────────────────────────
@@ -357,14 +389,20 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   Future<void> _switchVideo(String filePath, int index) async {
+    _autoPlayTimer?.cancel();
     await _savePosition();
     _currentPath = filePath;
+    _hasStartedPlaying = false;
+
     state = state.copyWith(
       currentIndex: index,
       isInitialized: false,
       position: Duration.zero,
       duration: Duration.zero,
       isSeeking: false,
+      clearAutoPlay: true,
+      clearError: true,
+      zoomScale: 1.0, // reset zoom on video switch
     );
 
     _disposeStreams();
@@ -378,20 +416,31 @@ class PlayerNotifier extends Notifier<PlayerState> {
     });
 
     await _player!.setVolume(100);
+    await _player!.setRate(state.playbackSpeed);
     await _player!.open(Media(filePath));
-
-    await MediaSessionService.setMetadata(
-      title: filePath.split('/').last,
-      duration: Duration.zero,
-    );
   }
+
+  // ── Gesture lock ──────────────────────────────────────────────────────────
+
+  void toggleLock() {
+    final locked = !state.isLocked;
+    state = state.copyWith(isLocked: locked, controlsVisible: !locked);
+    if (locked) _hideTimer?.cancel();
+  }
+
+  // ── Pinch-to-zoom ─────────────────────────────────────────────────────────
+
+  void setZoomScale(double scale) {
+    state = state.copyWith(zoomScale: scale.clamp(0.5, 4.0));
+  }
+
+  void resetZoom() => state = state.copyWith(zoomScale: 1.0);
 
   // ── Subtitles ──────────────────────────────────────────────────────────────
 
   void setSubtitleTrack(SubtitleTrack track) {
     _player?.setSubtitleTrack(track);
-    state =
-        state.copyWith(selectedSubtitleTrack: track, subtitlesEnabled: true);
+    state = state.copyWith(selectedSubtitleTrack: track, subtitlesEnabled: true);
     showControls();
   }
 
@@ -439,15 +488,13 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void endSwipe() {
-    final gesture = state.swipeGesture;
     _hudTimer?.cancel();
     _hudTimer = Timer(const Duration(milliseconds: 1500), () {
       state = state.copyWith(swipeGesture: SwipeGesture.none);
     });
-    if (gesture == SwipeGesture.brightness) {
+    if (state.swipeGesture == SwipeGesture.brightness) {
       BrightnessService.instance.saveBrightness(state.brightness);
     }
-    // Device volume persists on the OS side; no need to save it ourselves.
   }
 
   Future<void> _applyBrightness(double value) async {
@@ -468,6 +515,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void _disposeInternal() {
     _saveTimer?.cancel();
+    _autoPlayTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
@@ -482,11 +530,14 @@ class PlayerNotifier extends Notifier<PlayerState> {
   void _startHideTimer() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (state.isPlaying) state = state.copyWith(controlsVisible: false);
+      if (state.isPlaying && !state.isLocked) {
+        state = state.copyWith(controlsVisible: false);
+      }
     });
   }
 
   void showControls() {
+    if (state.isLocked) return;
     state = state.copyWith(controlsVisible: true);
     _startHideTimer();
   }
@@ -497,19 +548,18 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void togglePlay() {
-    // FIX: guard against calls arriving after dispose() begins (e.g. from the
-    // notification panel handler firing just as the player screen is closing).
     if (_isDisposing || _player == null) return;
+    // Cancel auto-play if user interacts manually.
+    if (state.autoPlayCountdown != null) cancelAutoPlay();
     try {
       _player?.playOrPause();
-    } catch (_) {
-      // Swallow — player may be in a transient state (loading/error).
-    }
+    } catch (_) {}
     showControls();
   }
 
   void seekRelative(int seconds) {
     if (_player == null) return;
+    if (state.autoPlayCountdown != null) cancelAutoPlay();
     final newPos = state.position + Duration(seconds: seconds);
     final target = newPos < Duration.zero
         ? Duration.zero
@@ -518,13 +568,16 @@ class PlayerNotifier extends Notifier<PlayerState> {
     showControls();
   }
 
-  void beginSeek(double value) =>
-      state = state.copyWith(isSeeking: true, seekValue: value);
+  void beginSeek(double value) {
+    if (state.autoPlayCountdown != null) cancelAutoPlay();
+    state = state.copyWith(isSeeking: true, seekValue: value);
+  }
 
   void updateSeek(double value) => state = state.copyWith(seekValue: value);
 
   void endSeek(double value) {
     if (_player == null) return;
+    if (state.autoPlayCountdown != null) cancelAutoPlay();
     final target =
         Duration(milliseconds: (value * state.duration.inMilliseconds).round());
     _player!.seek(target);
@@ -533,7 +586,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void setVolume(double volume) {
-    // volume is 0–100; convert to 0.0–1.0 for device system volume.
     VolumeService.instance.setDeviceVolume(volume / 100.0);
     state = state.copyWith(volume: volume);
   }
@@ -541,6 +593,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
   void setSpeed(double speed) {
     _player?.setRate(speed);
     state = state.copyWith(playbackSpeed: speed);
+    PlayerPreferencesService.instance.saveSpeed(speed);
     showControls();
   }
 
@@ -551,7 +604,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void cycleFitMode() {
-    state = state.copyWith(fitMode: state.fitMode.next);
+    final next = state.fitMode.next;
+    state = state.copyWith(fitMode: next);
+    PlayerPreferencesService.instance.saveFitModeIndex(next.index);
     showControls();
   }
 
@@ -576,28 +631,19 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   Future<void> dispose() async {
-    // Set flag FIRST — prevents notification callbacks from hitting disposed player.
     _isDisposing = true;
-
-    // Cut the channel handler immediately (sync) so no further native callbacks.
-    _mediaChannel.setMethodCallHandler(null);
-
-    // Remove device volume listener.
+    _autoPlayTimer?.cancel();
     VolumeService.instance.removeListener();
-
     _hideTimer?.cancel();
     _hudTimer?.cancel();
 
-    // Pause immediately so audio stops the instant Back is pressed.
     try {
       await _player?.pause();
     } catch (_) {}
 
-    // FIX #10: Cancel notification FIRST, then save position.
-    // Previously release() was called last; the notification could linger
-    // for hundreds of ms while position was being written to disk.
-    await MediaSessionService.release();
-
+    // FIX: cancel the throttle timer BEFORE awaiting _savePosition so it
+    // cannot fire concurrently and hit a null _player.
+    _saveTimer?.cancel();
     await _savePosition();
     _disposeInternal();
     state = const PlayerState();
