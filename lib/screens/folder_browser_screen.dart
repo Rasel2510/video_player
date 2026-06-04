@@ -26,9 +26,6 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
   @override
   bool get wantKeepAlive => true;
 
-  // String? get _currentPath =>
-  //     _breadcrumbs.isNotEmpty ? _breadcrumbs.last : null;
-
   Future<void> _pickRoot() async {
     final path = await FilePicker.platform.getDirectoryPath(
       dialogTitle: 'Choose root folder',

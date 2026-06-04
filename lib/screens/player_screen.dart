@@ -176,12 +176,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final notifier = ref.read(playerProvider.notifier);
     final size = MediaQuery.of(context).size;
 
     return PopScope(
       onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) await ref.read(playerProvider.notifier).dispose();
+        if (didPop) await _notifier.dispose();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -204,17 +203,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   onTap: () {
                     if (!_swipeActive && !_isPinching) {
                       controlsVisible
-                          ? notifier.hideControls()
-                          : notifier.showControls();
+                          ? _notifier.hideControls()
+                          : _notifier.showControls();
                     }
                   },
                   onDoubleTapDown: (details) {
                     if (isLocked) return;
                     final isLeft = details.globalPosition.dx < size.width / 2;
                     if (isLeft) {
-                      notifier.seekRelative(-10);
+                      _notifier.seekRelative(-10);
                     } else {
-                      notifier.seekRelative(10);
+                      _notifier.seekRelative(10);
                     }
                     _triggerSeekFlash(isLeft);
                   },
@@ -241,7 +240,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       _isPinching = true;
                       _swipeActive = false;
                       if (details.pointerCount >= 2) {
-                        notifier.setZoomScale(_baseZoomScale * details.scale);
+                        _notifier.setZoomScale(_baseZoomScale * details.scale);
                       }
                     } else if (_swipeActive && !_postPinchCooldown) {
                       if (!_swipeCommitted) {
@@ -252,11 +251,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                           if (dx.abs() > dy.abs()) {
                             _isSeekSwipe = true;
                             _seekStartProgress = ref.read(playerProvider).progress;
-                            notifier.beginSeek(_seekStartProgress);
-                            notifier.showControls();
+                            _notifier.beginSeek(_seekStartProgress);
+                            _notifier.showControls();
                           } else {
                             _isSeekSwipe = false;
-                            notifier.startSwipe(_dragStartDx, size.width);
+                            _notifier.startSwipe(_dragStartDx, size.width);
                           }
                         } else {
                           return;
@@ -271,10 +270,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                           final seekStartMs = _seekStartProgress * durationMs;
                           final newMs = (seekStartMs + deltaMs)
                               .clamp(0.0, durationMs.toDouble());
-                          notifier.updateSeek(newMs / durationMs);
+                          _notifier.updateSeek(newMs / durationMs);
                         }
                       } else {
-                        notifier.updateSwipe(
+                        _notifier.updateSwipe(
                             details.focalPointDelta.dy, size.height);
                       }
                     }
@@ -292,10 +291,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       _swipeActive = false;
                       if (_swipeCommitted) {
                         if (_isSeekSwipe) {
-                          notifier.endSeek(
+                          _notifier.endSeek(
                               ref.read(playerProvider).seekValue);
                         } else {
-                          notifier.endSwipe();
+                          _notifier.endSwipe();
                         }
                       }
                     }
@@ -310,7 +309,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   Positioned.fill(
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTap: notifier.showLockIcon,
+                      onTap: _notifier.showLockIcon,
                       // absorb all other gestures silently
                       onScaleStart: (_) {},
                       onScaleUpdate: (_) {},
@@ -326,7 +325,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     duration: const Duration(milliseconds: 300),
                     child: IgnorePointer(
                       ignoring: !lockIconVisible,
-                      child: LockOverlay(onUnlock: notifier.toggleLock),
+                      child: LockOverlay(onUnlock: _notifier.toggleLock),
                     ),
                   ),
               ],
