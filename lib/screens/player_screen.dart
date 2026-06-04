@@ -112,7 +112,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   void _showSpeedSheet(BuildContext ctx, double speed) => showModalBottomSheet(
         context: ctx,
-        backgroundColor: Colors.transparent,
         useSafeArea: true,
         builder: (_) => SpeedSheet(
           currentSpeed: speed,
@@ -123,7 +122,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _showVolumeSheet(BuildContext ctx, double volume) =>
       showModalBottomSheet(
         context: ctx,
-        backgroundColor: Colors.transparent,
         useSafeArea: true,
         builder: (_) => VolumeSheet(
           volume: volume,
@@ -135,7 +133,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final s = ref.read(playerProvider);
     showModalBottomSheet(
       context: ctx,
-      backgroundColor: Colors.transparent,
       useSafeArea: true,
       builder: (_) => AudioTrackSheet(
         tracks: s.audioTracks,
@@ -149,7 +146,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final s = ref.read(playerProvider);
     showModalBottomSheet(
       context: ctx,
-      backgroundColor: Colors.transparent,
       useSafeArea: true,
       isScrollControlled: true,
       builder: (_) => SubtitleSheet(
@@ -302,32 +298,45 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   child: child,
                 ),
 
-                // ── Lock overlay — always absorbs touches when locked ─────────
-                // Using a separate full-screen GestureDetector (not toggling
-                // callbacks to null) means the Video texture never rebuilds.
-                if (isLocked)
-                  Positioned.fill(
+                // ── Lock touch-absorber — always in tree, active only when locked ──
+                //
+                // ROOT CAUSE OF WHITE FLASH: using `if (isLocked)` here adds/
+                // removes widgets from the Stack on every lock toggle. Flutter
+                // must re-composite the platform Video view when its sibling
+                // list changes, which produces a single white frame.
+                //
+                // FIX: keep this widget permanently in the tree. Use
+                // IgnorePointer to toggle touch-absorption instead of
+                // conditional existence. The Video platform view never sees a
+                // sibling-list mutation, so no re-composition occurs.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    ignoring: !isLocked,
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: _notifier.showLockIcon,
-                      // absorb all other gestures silently
                       onScaleStart: (_) {},
                       onScaleUpdate: (_) {},
                       onScaleEnd: (_) {},
                       child: const SizedBox.expand(),
                     ),
                   ),
+                ),
 
-                // ── Lock icon (visible for 2 s, then fades out) ────────────────
-                if (isLocked)
-                  AnimatedOpacity(
-                    opacity: lockIconVisible ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 300),
-                    child: IgnorePointer(
-                      ignoring: !lockIconVisible,
-                      child: LockOverlay(onUnlock: _notifier.toggleLock),
-                    ),
+                // ── Lock icon — always in tree, fades in/out ─────────────────
+                // Never removed from the Stack: opacity 0.0 when unlocked,
+                // fades to 1.0 when locked+icon visible. Duration.zero on
+                // hide to avoid a lingering translucent frame.
+                AnimatedOpacity(
+                  opacity: isLocked && lockIconVisible ? 1.0 : 0.0,
+                  duration: (isLocked && lockIconVisible)
+                      ? const Duration(milliseconds: 250)
+                      : Duration.zero,
+                  child: IgnorePointer(
+                    ignoring: !(isLocked && lockIconVisible),
+                    child: LockOverlay(onUnlock: _notifier.toggleLock),
                   ),
+                ),
               ],
             );
           },

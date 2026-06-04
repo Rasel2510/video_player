@@ -18,7 +18,6 @@ class VolumeSheet extends StatefulWidget {
 class _VolumeSheetState extends State<VolumeSheet> {
   late double _volume;
 
-  // Orange accent used when volume is boosted above 100%.
   static const Color _boostColor     = Color(0xFFFF8C00);
   static const Color _boostColorSoft = Color(0x33FF8C00);
 
@@ -51,13 +50,30 @@ class _VolumeSheetState extends State<VolumeSheet> {
     final accent     = _accent(context);
     final accentSoft = _accentSoft(context);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+    return Container(
+      decoration: BoxDecoration(
+        color: context.colors.panel,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header row with Done button ──────────────────────────────────
+          // Drag handle
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: context.colors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+
+          // ── Header row ───────────────────────────────────────────────────
           Row(
             children: [
               Text(
@@ -70,8 +86,7 @@ class _VolumeSheetState extends State<VolumeSheet> {
               GestureDetector(
                 onTap: () => Navigator.pop(context),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                   decoration: BoxDecoration(
                     color: context.colors.elevated,
                     borderRadius: AppRadius.xl,
@@ -132,11 +147,9 @@ class _VolumeSheetState extends State<VolumeSheet> {
               ),
             ],
           ),
-
-          // ── Spacer (orange gradient line removed) ─────────────────────────
           const SizedBox(height: 12),
 
-          // ── Quick-set presets — normal range ──────────────────────────────
+          // ── Normal presets ────────────────────────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [0.0, 25.0, 50.0, 75.0, 100.0].map((v) {
@@ -213,7 +226,7 @@ class _PresetButton extends StatelessWidget {
             color: active
                 ? (accent ?? border)
                 : isBoost
-                    ? const Color(0xFF3A2800)
+                    ? const Color(0xFFFF8C00).withValues(alpha: 0.2)
                     : border,
           ),
           borderRadius: AppRadius.sm,
@@ -227,7 +240,7 @@ class _PresetButton extends StatelessWidget {
             color: active
                 ? (accent ?? muted)
                 : isBoost
-                    ? const Color(0xFF8B5E00)
+                    ? const Color(0xFFFF8C00).withValues(alpha: 0.6)
                     : muted,
           ),
         ),
