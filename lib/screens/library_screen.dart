@@ -36,7 +36,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   bool _searchOpen = false;
 
   final Map<String, _FolderResume?> _folderResumes = {};
-  List<VideoFolder>? _lastFoldersLoaded;
 
   @override
   bool get wantKeepAlive => true;
@@ -120,19 +119,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   // ── Folder resume helpers ──────────────────────────────────────────────────
 
-  Future<void> _loadFolderResumes(List<VideoFolder> folders) async {
-    final futures = folders
-        .where((f) => !_folderResumes.containsKey(f.path))
-        .map((folder) async {
-      final resume = await _findLastWatched(folder);
-      return (folder.path, resume);
-    });
-    final results = await Future.wait(futures);
-    if (!mounted) return;
-    setState(() {
-      for (final (path, resume) in results) {
-        _folderResumes[path] = resume;
-      }
+  /// FIX #OPT-6: Resume data is now loaded lazily per-folder when each item
+  /// becomes visible in the list, rather than eagerly for the entire library
+  /// up front.  For a library with 50 folders × 20 videos each, the old
+  /// approach fired 1000 SharedPreferences reads before the user saw anything.
+  /// Now each folder triggers its own load only once, on first render.
+  void _ensureResumeLoaded(VideoFolder folder) {
+    if (_folderResumes.containsKey(folder.path)) return;
+    // Mark as "in progress" with a sentinel so we don't re-fire on every
+    // build frame while the Future is still pending.
+    _folderResumes[folder.path] = null;
+    _findLastWatched(folder).then((resume) {
+      if (mounted) setState(() => _folderResumes[folder.path] = resume);
     });
   }
 
@@ -170,7 +168,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   Future<void> _resumeFolder(VideoFolder folder, _FolderResume resume) async {
-    await RecentFilesService.addRecent(resume.video);
+    await RecentFilesService.instance.addRecent(resume.video);
     if (!mounted) return;
     await Navigator.push(
       context,
@@ -240,12 +238,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     final allFolders = state.folders;
     final hasMultiStorage = state.storageRoots.length > 1;
 
-    if (!identical(_lastFoldersLoaded, allFolders)) {
-      _lastFoldersLoaded = allFolders;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _loadFolderResumes(allFolders);
-      });
-    }
+    // _lastFoldersLoaded guard removed — resume data is now loaded lazily
+    // inside itemBuilder via _ensureResumeLoaded().
 
     final displayFolders = _filtered(allFolders);
 
@@ -280,13 +274,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     itemCount: displayFolders.length,
                     itemBuilder: (_, i) {
-                      final folder = displayFolders[i];
-                      final resume = _folderResumes[folder.path];
+                      final folder     = displayFolders[i];
+                      // FIX #OPT-6: trigger resume load the first time this
+                      // item scrolls into view rather than loading all at once.
+                      _ensureResumeLoaded(folder);
+                      final resume     = _folderResumes[folder.path];
                       final isExternal = hasMultiStorage &&
                           !folder.path.contains('/emulated/');
-                      final isNew = ref
-                          .watch(foldersProvider.select((s) => s.newPaths))
-                          .contains(folder.path);
+                      // newPaths already watched above — no extra select needed.
+                      final isNew = state.newPaths.contains(folder.path);
                       return FolderCard(
                         folder: folder,
                         isExternal: isExternal,

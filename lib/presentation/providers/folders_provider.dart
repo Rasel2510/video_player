@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/video_file.dart';
@@ -7,6 +8,18 @@ import '../../models/video_folder.dart';
 import '../../services/folder_scanner.dart';
 
 // ── Storage root discovery ────────────────────────────────────────────────────
+
+// Module-level SharedPreferences cache — shared by top-level helpers and
+// FoldersNotifier so SharedPreferences.getInstance() is called only once.
+SharedPreferences? _cachedPrefs;
+Future<SharedPreferences> get _p async =>
+    _cachedPrefs ??= await SharedPreferences.getInstance();
+
+/// Sentinel exception used as a fast-path exit signal inside the isolate
+/// when a filesystem change is detected during a quick scan.
+class _ChangedSignal implements Exception {
+  const _ChangedSignal();
+}
 
 /// Returns all mounted storage roots on Android:
 /// - /storage/emulated/0  (internal storage, always present)
@@ -41,23 +54,23 @@ List<String> _discoverStorageRoots() {
 
 // ── Cache helpers ─────────────────────────────────────────────────────────────
 
-const _cacheKey     = 'folder_scan_cache_v2';
+const _cacheKey = 'folder_scan_cache_v2';
 const _cacheTimeKey = 'folder_scan_time_v2';
-const _cacheTtl     = Duration(hours: 12);
+const _cacheTtl = Duration(hours: 12);
 
 // We store a lightweight "snapshot" of folder→videoCount to detect
 // new folders/files without doing a full scan.
-const _snapshotKey  = 'folder_scan_snapshot_v2';
+const _snapshotKey = 'folder_scan_snapshot_v2';
 
 // Paths seen by the user (acknowledged). New ones get a "NEW" badge.
-const _seenPathsKey     = 'folder_scan_seen_paths_v1';
+const _seenPathsKey = 'folder_scan_seen_paths_v1';
 const _seenPathsInitKey = 'folder_scan_seen_paths_init_v1'; // true once written
 
 /// Returns null on fresh install (never scanned before).
 /// Returns the set of previously seen paths on subsequent scans.
 Future<Set<String>?> _loadSeenPaths() async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _p;
     // If we have never written seen-paths, this is a fresh install.
     if (prefs.getBool(_seenPathsInitKey) != true) return null;
     final raw = prefs.getString(_seenPathsKey);
@@ -71,7 +84,7 @@ Future<Set<String>?> _loadSeenPaths() async {
 
 Future<void> _saveSeenPaths(Set<String> paths) async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _p;
     await prefs.setBool(_seenPathsInitKey, true);
     await prefs.setString(_seenPathsKey, jsonEncode(paths.toList()));
   } catch (_) {}
@@ -79,10 +92,10 @@ Future<void> _saveSeenPaths(Set<String> paths) async {
 
 Future<List<VideoFolder>?> _loadCache() async {
   try {
-    final prefs = await SharedPreferences.getInstance();
-    final ts  = prefs.getInt(_cacheTimeKey) ?? 0;
-    final age = DateTime.now().difference(
-        DateTime.fromMillisecondsSinceEpoch(ts));
+    final prefs = await _p;
+    final ts = prefs.getInt(_cacheTimeKey) ?? 0;
+    final age =
+        DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ts));
     if (age > _cacheTtl) return null;
 
     final raw = prefs.getString(_cacheKey);
@@ -97,9 +110,10 @@ Future<List<VideoFolder>?> _loadCache() async {
 
 Future<void> _saveCache(List<VideoFolder> folders) async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _p;
     await prefs.setInt(_cacheTimeKey, DateTime.now().millisecondsSinceEpoch);
-    await prefs.setString(_cacheKey, jsonEncode(folders.map(_folderToMap).toList()));
+    await prefs.setString(
+        _cacheKey, jsonEncode(folders.map(_folderToMap).toList()));
     // Save snapshot: Map<folderPath, videoCount>
     final snapshot = {for (final f in folders) f.path: f.videoCount};
     await prefs.setString(_snapshotKey, jsonEncode(snapshot));
@@ -108,34 +122,66 @@ Future<void> _saveCache(List<VideoFolder> folders) async {
 
 /// Quick check: scan folder paths & counts WITHOUT reading file metadata.
 /// Returns true if anything changed vs the cached snapshot.
+///
+/// FIX #OPT-7: Previously _quickScan used `await for (dir.list())` on the
+/// main isolate, which still processes the entire directory tree via async
+/// microtasks on the UI thread.  For deep trees with thousands of files this
+/// clogs the event loop.  The walk is now offloaded to a dedicated isolate
+/// so the UI thread stays completely free during the check.
 Future<bool> _hasNewContent() async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _p;
     final rawSnapshot = prefs.getString(_snapshotKey);
     if (rawSnapshot == null) return true; // no snapshot → treat as changed
 
-    final oldSnapshot = Map<String, int>.from(
-        (jsonDecode(rawSnapshot) as Map).map((k, v) => MapEntry(k as String, v as int)));
+    final oldSnapshot = Map<String, int>.from((jsonDecode(rawSnapshot) as Map)
+        .map((k, v) => MapEntry(k as String, v as int)));
 
     final roots = _discoverStorageRoots();
-    for (final root in roots) {
-      await _quickScan(Directory(root), oldSnapshot);
-    }
-    return false; // completed without throwing → no changes found
-  } catch (e) {
-    if (e is _ChangedSignal) return true;
-    return false;
+
+    // Spawn one isolate to check all roots; it sends true/false back.
+    final port = ReceivePort();
+    await Isolate.spawn(
+      _isolateQuickCheck,
+      _QuickCheckData(roots, oldSnapshot, port.sendPort),
+    );
+    final changed = await port.first as bool;
+    return changed;
+  } catch (_) {
+    return true; // on any error, assume changed → trigger full scan
   }
 }
 
-/// Walks the tree quickly (no file stat), throws [_ChangedSignal] on change.
-Future<void> _quickScan(
-    Directory dir, Map<String, int> snapshot) async {
+// ── Isolate entry point ───────────────────────────────────────────────────────
+
+class _QuickCheckData {
+  final List<String> roots;
+  final Map<String, int> snapshot;
+  final SendPort sendPort;
+  _QuickCheckData(this.roots, this.snapshot, this.sendPort);
+}
+
+/// Top-level function required by Isolate.spawn.
+void _isolateQuickCheck(_QuickCheckData data) {
+  try {
+    for (final root in data.roots) {
+      _quickScanSync(Directory(root), data.snapshot);
+    }
+    data.sendPort.send(false); // no changes found
+  } catch (e) {
+    // _ChangedSignal or any other exception → treat as changed.
+    data.sendPort.send(true);
+  }
+}
+
+/// Synchronous recursive walk inside the isolate.
+/// Throws [_ChangedSignal] as a fast-path exit when a change is detected.
+void _quickScanSync(Directory dir, Map<String, int> snapshot) {
   try {
     int videoCount = 0;
     final subs = <Directory>[];
 
-    await for (final entity in dir.list(followLinks: false)) {
+    for (final entity in dir.listSync(followLinks: false)) {
       if (entity is File && VideoFile.isVideoFile(entity.path)) {
         videoCount++;
       } else if (entity is Directory) {
@@ -146,27 +192,27 @@ Future<void> _quickScan(
 
     if (videoCount > 0) {
       final cached = snapshot[dir.path];
-      if (cached == null || cached != videoCount) throw _ChangedSignal();
+      if (cached == null || cached != videoCount) throw const _ChangedSignal();
     }
 
     for (final sub in subs) {
-      await _quickScan(sub, snapshot);
+      _quickScanSync(sub, snapshot);
     }
   } on _ChangedSignal {
     rethrow;
   } catch (_) {}
 }
 
-class _ChangedSignal implements Exception {}
-
 Map<String, dynamic> _folderToMap(VideoFolder f) => {
       'path': f.path,
-      'videos': f.videos.map((v) => {
-            'path': v.path,
-            'name': v.name,
-            'size': v.size,
-            'modified': v.modified.millisecondsSinceEpoch,
-          }).toList(),
+      'videos': f.videos
+          .map((v) => {
+                'path': v.path,
+                'name': v.name,
+                'size': v.size,
+                'modified': v.modified.millisecondsSinceEpoch,
+              })
+          .toList(),
     };
 
 VideoFolder _folderFromMap(Map<String, dynamic> m) => VideoFolder(
@@ -176,7 +222,8 @@ VideoFolder _folderFromMap(Map<String, dynamic> m) => VideoFolder(
                 path: v['path'] as String,
                 name: v['name'] as String,
                 size: v['size'] as int,
-                modified: DateTime.fromMillisecondsSinceEpoch(v['modified'] as int),
+                modified:
+                    DateTime.fromMillisecondsSinceEpoch(v['modified'] as int),
               ))
           .toList(),
     );
@@ -193,10 +240,10 @@ class FoldersState {
   final Set<String> newPaths;
 
   const FoldersState({
-    this.folders    = const [],
+    this.folders = const [],
     this.isScanning = false,
     this.scanProgress = 0,
-    this.fromCache  = false,
+    this.fromCache = false,
     this.storageRoots = const [],
     this.newPaths = const {},
   });
@@ -204,18 +251,18 @@ class FoldersState {
   FoldersState copyWith({
     List<VideoFolder>? folders,
     bool? isScanning,
-    int?  scanProgress,
+    int? scanProgress,
     bool? fromCache,
     List<String>? storageRoots,
     Set<String>? newPaths,
   }) =>
       FoldersState(
-        folders:      folders      ?? this.folders,
-        isScanning:   isScanning   ?? this.isScanning,
+        folders: folders ?? this.folders,
+        isScanning: isScanning ?? this.isScanning,
         scanProgress: scanProgress ?? this.scanProgress,
-        fromCache:    fromCache    ?? this.fromCache,
+        fromCache: fromCache ?? this.fromCache,
         storageRoots: storageRoots ?? this.storageRoots,
-        newPaths:     newPaths     ?? this.newPaths,
+        newPaths: newPaths ?? this.newPaths,
       );
 }
 
@@ -296,40 +343,39 @@ class FoldersNotifier extends Notifier<FoldersState> {
       }
     }
 
+    // Precompute sort keys for both videos and folders before sorting.
     final merged = folderMap.entries.map((e) {
-      final videos = e.value
-        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      final videos = e.value;
+      final vkeys = {for (final v in videos) v: v.name.toLowerCase()};
+      videos.sort((a, b) => vkeys[a]!.compareTo(vkeys[b]!));
       return VideoFolder(path: e.key, videos: videos);
-    }).toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    }).toList();
+    final fkeys = {for (final f in merged) f: f.name.toLowerCase()};
+    merged.sort((a, b) => fkeys[a]!.compareTo(fkeys[b]!));
 
-    // Compute new paths only when a previous scan exists.
-    // null means fresh install → save all as seen, show no badges.
+    // Single pass — compute newPaths and allPaths simultaneously.
+    // null seenPaths = fresh install; save all as seen, no NEW badges.
     final seenPaths = await _loadSeenPaths();
     final Set<String> newPaths = {};
-    if (seenPaths != null && seenPaths.isNotEmpty) {
-      for (final folder in merged) {
-        if (!seenPaths.contains(folder.path)) {
-          newPaths.add(folder.path);
-        }
-        for (final video in folder.videos) {
-          if (!seenPaths.contains(video.path)) {
-            newPaths.add(video.path);
-            newPaths.add(folder.path); // mark the parent folder new too
-          }
-        }
-      }
-    }
+    final Set<String> allPaths = {};
 
-    // Save all current paths as seen
-    final allPaths = <String>{};
     for (final folder in merged) {
       allPaths.add(folder.path);
+      if (seenPaths != null &&
+          seenPaths.isNotEmpty &&
+          !seenPaths.contains(folder.path)) {
+        newPaths.add(folder.path);
+      }
       for (final video in folder.videos) {
         allPaths.add(video.path);
+        if (seenPaths != null &&
+            seenPaths.isNotEmpty &&
+            !seenPaths.contains(video.path)) {
+          newPaths.add(video.path);
+          newPaths.add(folder.path); // mark parent folder new too
+        }
       }
     }
-    await _saveSeenPaths(allPaths);
 
     state = state.copyWith(
       folders: merged,
@@ -338,7 +384,11 @@ class FoldersNotifier extends Notifier<FoldersState> {
       newPaths: newPaths,
     );
 
-    await _saveCache(merged);
+    // Save seen-paths and folder cache in parallel.
+    await Future.wait([
+      _saveSeenPaths(allPaths),
+      _saveCache(merged),
+    ]);
   }
 
   /// Called when a user opens a video. Removes the video path from newPaths,
@@ -365,7 +415,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
 
   Future<void> _persistSeenRemoval(String videoPath) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _p;
       final raw = prefs.getString(_seenPathsKey);
       if (raw == null) return;
       final list = (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();

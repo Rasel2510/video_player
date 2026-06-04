@@ -23,7 +23,7 @@ class HomeScreen extends ConsumerWidget {
       size: f.size,
       modified: DateTime.now(),
     );
-    await RecentFilesService.addRecent(vf);
+    await RecentFilesService.instance.addRecent(vf);
     if (!context.mounted) return;
     _openVideo(context, vf);
   }

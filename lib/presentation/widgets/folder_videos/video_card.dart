@@ -31,8 +31,10 @@ class VideoCard extends StatelessWidget {
     switch (sortBy) {
       case SortOption.dateModified:
         final d = vf.modified;
-        return '${d.year}-${d.month.toString().padLeft(2, '0')}-'
-            '${d.day.toString().padLeft(2, '0')}';
+        // Avoid padLeft — direct conditional is allocation-free.
+        final mo = d.month < 10 ? '0${d.month}' : '${d.month}';
+        final dy = d.day   < 10 ? '0${d.day}'   : '${d.day}';
+        return '${d.year}-$mo-$dy';
       case SortOption.duration:
         return totalDur != null
             ? DurationFormatter.format(totalDur!)
@@ -100,7 +102,7 @@ class VideoCard extends StatelessWidget {
                           ],
                           const SizedBox(height: 6),
                           Row(children: [
-                            FormatBadge(vf.extension.replaceFirst('.', '')),
+                            FormatBadge(vf.extensionLabel),
                             const SizedBox(width: 8),
                             Text(_subtitle, style: context.textStyles.caption),
                             if (savedPos != null) ...[

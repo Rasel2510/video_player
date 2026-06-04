@@ -103,8 +103,9 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     final list = base.where((v) => !_deletedPaths.contains(v.path)).toList();
     switch (_sortBy) {
       case SortOption.name:
-        list.sort(
-            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        // Precompute keys — toLowerCase() in a comparator runs O(n log n) times.
+        final nameKeys = {for (final v in list) v: v.name.toLowerCase()};
+        list.sort((a, b) => nameKeys[a]!.compareTo(nameKeys[b]!));
       case SortOption.dateModified:
         list.sort((a, b) => b.modified.compareTo(a.modified));
       case SortOption.size:
@@ -175,7 +176,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     }
 
     if (!mounted) return;
-    await RecentFilesService.addRecent(vf);
+    await RecentFilesService.instance.addRecent(vf);
     ref.read(foldersProvider.notifier).markSeen(vf.path);
     if (!mounted) return;
 
@@ -193,14 +194,16 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   }
 
   Future<void> _refreshPosition(String path) async {
-    final pos = await PositionService.instance.load(path);
-    final dur = await DurationCacheService.instance.getDuration(path);
-    if (mounted) {
-      setState(() {
-        _positions[path] = pos ?? Duration.zero;
-        if (dur != null) _durations[path] = dur;
-      });
-    }
+    // Load position and duration in parallel — they are independent reads.
+    final posFuture = PositionService.instance.load(path);
+    final durFuture = DurationCacheService.instance.getDuration(path);
+    final pos = await posFuture;
+    final dur = await durFuture;
+    if (!mounted) return;
+    setState(() {
+      _positions[path] = pos ?? Duration.zero;
+      if (dur != null) _durations[path] = dur;
+    });
   }
 
   // ── Long-press options ─────────────────────────────────────────────────────
@@ -212,6 +215,8 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     final hasResume = (_positions[vf.path] ?? Duration.zero) > Duration.zero;
     showModalBottomSheet(
       context: context,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
       builder: (_) => VideoOptionsSheet(
         vf: vf,
         hasResume: hasResume,
@@ -307,6 +312,8 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   void _showSortSheet() {
     showModalBottomSheet(
       context: context,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
       builder: (_) => SortSheet(
         current: _sortBy,
         onSelect: (opt) {

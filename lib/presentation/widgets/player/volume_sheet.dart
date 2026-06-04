@@ -19,7 +19,7 @@ class _VolumeSheetState extends State<VolumeSheet> {
   late double _volume;
 
   // Orange accent used when volume is boosted above 100%.
-  static const Color _boostColor = Color(0xFFFF8C00);
+  static const Color _boostColor     = Color(0xFFFF8C00);
   static const Color _boostColorSoft = Color(0x33FF8C00);
 
   @override
@@ -48,7 +48,7 @@ class _VolumeSheetState extends State<VolumeSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = _accent(context);
+    final accent     = _accent(context);
     final accentSoft = _accentSoft(context);
 
     return Padding(
@@ -133,44 +133,18 @@ class _VolumeSheetState extends State<VolumeSheet> {
             ],
           ),
 
-          // ── Boost indicator bar ───────────────────────────────────────────
-          if (_isBoosted)
-            Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 4),
-              child: Row(
-                children: [
-                  const SizedBox(width: 32),
-                  Expanded(
-                    child: Container(
-                      height: 2,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            context.colors.accent,
-                            _boostColor,
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(1),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 68),
-                ],
-              ),
-            )
-          else
-            const SizedBox(height: 12),
+          // ── Spacer (orange gradient line removed) ─────────────────────────
+          const SizedBox(height: 12),
 
           // ── Quick-set presets — normal range ──────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [0.0, 25.0, 50.0, 75.0, 100.0].map((v) {
               final active = (_volume - v).abs() < 1.0;
-              final isBoostPreset = false;
               return _PresetButton(
                 label: '${v.round()}%',
                 active: active,
-                isBoost: isBoostPreset,
+                isBoost: false,
                 accent: active ? context.colors.accent : null,
                 accentSoft: context.colors.accentSoft,
                 border: context.colors.border,

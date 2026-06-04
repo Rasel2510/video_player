@@ -1,3 +1,4 @@
+import '../core/utils/file_size_formatter.dart';
 import 'package:path/path.dart' as p;
 import 'video_file.dart';
 
@@ -7,20 +8,17 @@ class VideoFolder {
 
   VideoFolder({required this.path, required this.videos});
 
-  /// The display name of the folder (last path segment).
-  String get name => p.basename(path).isEmpty ? path : p.basename(path);
+  // late final — each of these was previously recomputed on every access.
+  // name:      calls p.basename() twice in the old getter.
+  // totalSize: folds the entire video list on every access.
+  late final String name = _computeName();
+  late final int    totalSize      = videos.fold(0, (s, v) => s + v.size);
+  late final String totalSizeLabel = FileSizeFormatter.format(totalSize);
+
+  String _computeName() {
+    final base = p.basename(path);
+    return base.isEmpty ? path : base;
+  }
 
   int get videoCount => videos.length;
-
-  /// Total size of all videos in this folder (bytes).
-  int get totalSize => videos.fold(0, (sum, v) => sum + v.size);
-
-  String get totalSizeLabel {
-    final bytes = totalSize;
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-  }
 }

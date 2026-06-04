@@ -66,11 +66,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _isSeekSwipe = false;
   double _seekStartProgress = 0;
 
+  // Convenience getter — ref.read(playerProvider.notifier) repeated in build()
+  // is equivalent each call (provider identity is stable), but a getter makes
+  // the intent clear and avoids typos.
+  PlayerNotifier get _notifier => ref.read(playerProvider.notifier);
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(playerProvider.notifier).init(
+      _notifier.init(
             widget.filePath,
             resumeFrom: widget.resumeFrom,
             folderVideos: widget.folderVideos,
@@ -82,7 +87,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   void dispose() {
     _seekFlashCtrl.dispose();
-    ref.read(playerProvider.notifier).dispose();
+    _notifier.dispose();
     super.dispose();
   }
 
@@ -107,18 +112,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   void _showSpeedSheet(BuildContext ctx, double speed) => showModalBottomSheet(
         context: ctx,
+        backgroundColor: Colors.transparent,
+        useSafeArea: true,
         builder: (_) => SpeedSheet(
           currentSpeed: speed,
-          onSelect: (s) => ref.read(playerProvider.notifier).setSpeed(s),
+          onSelect: (s) => _notifier.setSpeed(s),
         ),
       );
 
   void _showVolumeSheet(BuildContext ctx, double volume) =>
       showModalBottomSheet(
         context: ctx,
+        backgroundColor: Colors.transparent,
+        useSafeArea: true,
         builder: (_) => VolumeSheet(
           volume: volume,
-          onChanged: (v) => ref.read(playerProvider.notifier).setVolume(v),
+          onChanged: (v) => _notifier.setVolume(v),
         ),
       );
 
@@ -126,10 +135,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final s = ref.read(playerProvider);
     showModalBottomSheet(
       context: ctx,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
       builder: (_) => AudioTrackSheet(
         tracks: s.audioTracks,
         selectedTrack: s.selectedAudioTrack,
-        onSelect: (t) => ref.read(playerProvider.notifier).setAudioTrack(t),
+        onSelect: (t) => _notifier.setAudioTrack(t),
       ),
     );
   }
@@ -138,24 +149,28 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final s = ref.read(playerProvider);
     showModalBottomSheet(
       context: ctx,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      isScrollControlled: true,
       builder: (_) => SubtitleSheet(
         tracks: s.subtitleTracks,
         selectedTrack: s.selectedSubtitleTrack,
         subtitlesEnabled: s.subtitlesEnabled,
-        onSelect: (t) => ref.read(playerProvider.notifier).setSubtitleTrack(t),
-        onToggle: () => ref.read(playerProvider.notifier).toggleSubtitles(),
+        onSelect: (t) => _notifier.setSubtitleTrack(t),
+        onToggle: () => _notifier.toggleSubtitles(),
       ),
     );
   }
 
   // ── Fit mode ───────────────────────────────────────────────────────────────
-
-  BoxFit _boxFit(FitMode mode) => switch (mode) {
-        FitMode.contain => BoxFit.contain,
-        FitMode.cover => BoxFit.cover,
-        FitMode.fill => BoxFit.fill,
-        FitMode.natural => BoxFit.scaleDown,
-      };
+  // Const map avoids a switch allocation on every video Consumer rebuild.
+  static const _fitBoxMap = {
+    FitMode.contain: BoxFit.contain,
+    FitMode.cover:   BoxFit.cover,
+    FitMode.fill:    BoxFit.fill,
+    FitMode.natural: BoxFit.scaleDown,
+  };
+  BoxFit _boxFit(FitMode mode) => _fitBoxMap[mode] ?? BoxFit.contain;
 
   // ── Build ──────────────────────────────────────────────────────────────────
 
@@ -172,12 +187,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         backgroundColor: Colors.black,
         body: Consumer(
           builder: (context, ref, child) {
-            final isLocked =
-                ref.watch(playerProvider.select((s) => s.isLocked));
-            final lockIconVisible =
-                ref.watch(playerProvider.select((s) => s.lockIconVisible));
-            final controlsVisible =
-                ref.watch(playerProvider.select((s) => s.controlsVisible));
+            // Single combined select — three separate selects would register
+            // three listeners; this registers one and only rebuilds when any
+            // of the three values actually change.
+            final (:isLocked, :lockIconVisible, :controlsVisible) =
+                ref.watch(playerProvider.select((s) => (
+                  isLocked: s.isLocked,
+                  lockIconVisible: s.lockIconVisible,
+                  controlsVisible: s.controlsVisible,
+                )));
 
             return Stack(
               children: [
@@ -319,25 +337,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               // ── Video ──────────────────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
-                  final isInitialized =
-                      ref.watch(playerProvider.select((s) => s.isInitialized));
-                  final fitMode =
-                      ref.watch(playerProvider.select((s) => s.fitMode));
-                  final zoomScale =
-                      ref.watch(playerProvider.select((s) => s.zoomScale));
-                  final hasError =
-                      ref.watch(playerProvider.select((s) => s.hasError));
-                  final errorMsg =
-                      ref.watch(playerProvider.select((s) => s.errorMessage));
+                  final (:isInitialized, :fitMode, :zoomScale, :hasError, errorMsg: errorMsg) =
+                      ref.watch(playerProvider.select((s) => (
+                            isInitialized: s.isInitialized,
+                            fitMode:       s.fitMode,
+                            zoomScale:     s.zoomScale,
+                            hasError:      s.hasError,
+                            errorMsg:      s.errorMessage,
+                          )));
 
                   if (hasError) {
                     return ErrorState(
                       message: errorMsg,
-                      onRetry: () => ref.read(playerProvider.notifier).init(
-                            ref.read(playerProvider).currentVideo?.path ?? '',
-                            folderVideos: ref.read(playerProvider).folderVideos,
-                            initialIndex: ref.read(playerProvider).currentIndex,
-                          ),
+                      onRetry: () {
+                        // FIX #OPT-1: .let() is a Kotlin idiom; Dart has no such
+                        // built-in extension. Use a plain block instead.
+                        final n = ref.read(playerProvider.notifier);
+                        final s = ref.read(playerProvider);
+                        n.init(
+                          s.currentVideo?.path ?? '',
+                          folderVideos: s.folderVideos,
+                          initialIndex: s.currentIndex,
+                        );
+                      },
                       onBack: () => Navigator.pop(context),
                     );
                   }
@@ -349,15 +371,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   }
 
                   return Positioned.fill(
-                    child: Transform.scale(
-                      scale: zoomScale,
-                      child: Video(
-                        controller:
-                            ref.read(playerProvider.notifier).videoController!,
-                        fit: _boxFit(fitMode),
-                        controls: NoVideoControls,
-                      ),
-                    ),
+                    // FIX #OPT-11: Transform.scale at 1.0 still composites an
+                    // extra layer. Skip the wrapper entirely when not zoomed.
+                    child: zoomScale == 1.0
+                        ? Video(
+                            controller: ref
+                                .read(playerProvider.notifier)
+                                .videoController!,
+                            fit: _boxFit(fitMode),
+                            controls: NoVideoControls,
+                          )
+                        : Transform.scale(
+                            scale: zoomScale,
+                            child: Video(
+                              controller: ref
+                                  .read(playerProvider.notifier)
+                                  .videoController!,
+                              fit: _boxFit(fitMode),
+                              controls: NoVideoControls,
+                            ),
+                          ),
                   );
                 },
               ),
@@ -384,10 +417,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               // ── Swipe HUD ──────────────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
-                  final gesture =
-                      ref.watch(playerProvider.select((s) => s.swipeGesture));
-                  final value =
-                      ref.watch(playerProvider.select((s) => s.swipeValue));
+                  final (:gesture, :value) =
+                      ref.watch(playerProvider.select((s) => (
+                            gesture: s.swipeGesture,
+                            value:   s.swipeValue,
+                          )));
                   if (gesture == SwipeGesture.none) return const SizedBox();
                   return SwipeHud(gesture: gesture, value: value);
                 },
@@ -396,13 +430,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               // ── Auto-play countdown ────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
-                  final countdown = ref
-                      .watch(playerProvider.select((s) => s.autoPlayCountdown));
-                  final nextVideo =
-                      ref.watch(playerProvider.select((s) => s.nextVideo));
-                  if (countdown == null || nextVideo == null) {
-                    return const SizedBox();
-                  }
+                  final (:countdown, :nextVideo) =
+                      ref.watch(playerProvider.select((s) => (
+                            countdown: s.autoPlayCountdown,
+                            nextVideo: s.nextVideo,
+                          )));
+                  if (countdown == null || nextVideo == null) return const SizedBox();
                   return AutoPlayCountdown(
                     countdown: countdown,
                     nextVideoName: nextVideo.name,
@@ -432,10 +465,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 7),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.65),
+                            color: const Color(0xA6000000),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.2),
+                                color: const Color(0x33FFFFFF),
                                 width: 1),
                           ),
                           child: Row(
@@ -468,28 +501,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               // ── Controls overlay ───────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
-                  final isInitialized =
-                      ref.watch(playerProvider.select((s) => s.isInitialized));
-                  final hasError =
-                      ref.watch(playerProvider.select((s) => s.hasError));
-                  if (!isInitialized || hasError) {
-                    return const SizedBox();
-                  }
-                  final isLocked =
-                      ref.watch(playerProvider.select((s) => s.isLocked));
-                  final controlsVisible = ref
-                      .watch(playerProvider.select((s) => s.controlsVisible));
-                  final currentVideo =
-                      ref.watch(playerProvider.select((s) => s.currentVideo));
+                  final (:isInitialized, :hasError, :isLocked,
+                          :controlsVisible, :currentVideo) =
+                      ref.watch(playerProvider.select((s) => (
+                            isInitialized:   s.isInitialized,
+                            hasError:        s.hasError,
+                            isLocked:        s.isLocked,
+                            controlsVisible: s.controlsVisible,
+                            currentVideo:    s.currentVideo,
+                          )));
+                  if (!isInitialized || hasError) return const SizedBox();
                   final displayName = currentVideo?.name ?? widget.fileName;
                   final notifier = ref.read(playerProvider.notifier);
 
                   // Keep controls in the widget tree when hidden (opacity=0)
-                  // so Flutter never tears down the platform-view compositor layer,
-                  // which would flash black. When HIDING we use a plain Opacity
-                  // (no animation) because AnimatedOpacity over a platform view
-                  // creates an intermediate compositor layer that flashes white
-                  // in release builds. Only SHOWING uses the fade-in animation.
+                  // so Flutter never tears down the platform-view compositor layer.
+                  //
+                  // IMPORTANT: always use the SAME widget type (AnimatedOpacity)
+                  // regardless of visibility. Switching between AnimatedOpacity
+                  // and Opacity causes Flutter to rebuild the subtree, which
+                  // triggers a white compositor-layer flash over the video
+                  // platform view in release builds — the exact "white screen"
+                  // seen when tapping the lock icon.
+                  //
+                  // Using Duration.zero when hiding gives an instant hide
+                  // without any intermediate saveLayer, while keeping the widget
+                  // type stable avoids the destructive rebuild entirely.
                   final visible = controlsVisible && !isLocked;
                   final child = IgnorePointer(
                     ignoring: !visible,
@@ -513,18 +550,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         onPlayNext: notifier.playNext,
                         onPlayPrevious: notifier.playPrevious,
                         onToggleLock: notifier.toggleLock,
+                        onToggleRepeat: notifier.cycleLoopMode,
                       ),
                     );
-                  // Visible: animate fade-in. Hidden: instant Opacity(0) to
-                  // avoid the white compositor flash in release builds.
-                  if (visible) {
-                    return AnimatedOpacity(
-                      opacity: 1.0,
-                      duration: const Duration(milliseconds: 200),
-                      child: child,
-                    );
-                  }
-                  return Opacity(opacity: 0.0, child: child);
+                  return AnimatedOpacity(
+                    opacity: visible ? 1.0 : 0.0,
+                    // Fade-in when showing; instant (0 ms) when hiding so there
+                    // is no intermediate compositor layer to flash white.
+                    duration: visible
+                        ? const Duration(milliseconds: 200)
+                        : Duration.zero,
+                    child: child,
+                  );
                 },
               ),
             ],

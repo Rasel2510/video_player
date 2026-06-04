@@ -13,7 +13,7 @@ class FormatBadge extends StatelessWidget {
       decoration: BoxDecoration(
           color: context.colors.accentSoft, borderRadius: AppRadius.xs),
       child: Text(
-        ext.toUpperCase(),
+        ext,
         style: TextStyle(
           fontSize: 9,
           fontWeight: FontWeight.w700,

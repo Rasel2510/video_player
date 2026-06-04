@@ -77,12 +77,13 @@ class _FolderBrowserScreenState extends State<FolderBrowserScreen>
   }
 
   void _openVideo(VideoFile vf) {
-    RecentFilesService.addRecent(vf);
+    RecentFilesService.instance.addRecent(vf);
     widget.onOpenVideo(vf);
   }
 
   String _dirName(String path) {
-    return p.basename(path).isEmpty ? path : p.basename(path);
+    final base = p.basename(path);
+    return base.isEmpty ? path : base;
   }
 
   @override

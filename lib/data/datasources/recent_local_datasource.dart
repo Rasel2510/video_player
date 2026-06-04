@@ -4,11 +4,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/entities/video_entity.dart';
 
 class RecentLocalDataSource {
+  // Cached SharedPreferences — only one platform channel call per session.
+  SharedPreferences? _prefs;
+  Future<SharedPreferences> get _p async =>
+      _prefs ??= await SharedPreferences.getInstance();
+
   static const _key = 'recent_videos_v2';
   static const _maxItems = 20;
 
   Future<List<VideoEntity>> getRecents() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _p;
     final raw = prefs.getStringList(_key) ?? [];
     final result = <VideoEntity>[];
     for (final s in raw) {
@@ -22,7 +27,7 @@ class RecentLocalDataSource {
   }
 
   Future<void> addRecent(VideoEntity video) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _p;
     final raw = prefs.getStringList(_key) ?? [];
 
     raw.removeWhere((s) {
@@ -39,7 +44,7 @@ class RecentLocalDataSource {
   }
 
   Future<void> removeRecent(String path) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _p;
     final raw = prefs.getStringList(_key) ?? [];
     raw.removeWhere((s) {
       try {
@@ -52,7 +57,7 @@ class RecentLocalDataSource {
   }
 
   Future<void> clearAll() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _p;
     await prefs.remove(_key);
   }
 

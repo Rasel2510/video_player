@@ -217,7 +217,11 @@ final class AppTheme {
     mono: TextStyle(fontSize: 11, fontFamily: 'monospace', color: c.textSecondary, letterSpacing: 0.5),
   );
 
-  static ThemeData get dark {
+  // Built once — ThemeData is expensive. A getter rebuilds it on every access.
+  static final ThemeData dark = _buildDark();
+  static final ThemeData light = _buildLight();
+
+  static ThemeData _buildDark() {
     final styles = _createTextStyles(_darkColors);
     return ThemeData(
       useMaterial3: true,
@@ -315,7 +319,7 @@ final class AppTheme {
     );
   }
 
-  static ThemeData get light {
+  static ThemeData _buildLight() {
     final styles = _createTextStyles(_lightColors);
     return ThemeData(
       useMaterial3: true,

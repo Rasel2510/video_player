@@ -10,7 +10,8 @@ class FolderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = p.basename(dirPath).isEmpty ? dirPath : p.basename(dirPath);
+    final base = p.basename(dirPath);
+    final name = base.isEmpty ? dirPath : base;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
