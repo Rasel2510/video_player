@@ -220,6 +220,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      showDragHandle: false,
       useSafeArea: true,
       builder: (_) => VideoOptionsSheet(
         vf: vf,
@@ -317,6 +318,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      showDragHandle: false,
       useSafeArea: true,
       builder: (_) => SortSheet(
         current: _sortBy,

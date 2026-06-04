@@ -51,6 +51,7 @@ class _VolumeSheetState extends State<VolumeSheet> {
     final accentSoft = _accentSoft(context);
 
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: context.colors.panel,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -186,6 +187,7 @@ class _VolumeSheetState extends State<VolumeSheet> {
             }).toList(),
           ),
           const SizedBox(height: 8),
+          SizedBox(height: MediaQuery.of(context).padding.bottom),
         ],
       ),
     );

@@ -290,7 +290,7 @@ final class AppTheme {
         ),
         clipBehavior: Clip.antiAlias,
         dragHandleColor: _darkColors.border,
-        showDragHandle: true,
+        showDragHandle: false,
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: _darkColors.panel,
@@ -388,7 +388,7 @@ final class AppTheme {
         ),
         clipBehavior: Clip.antiAlias,
         dragHandleColor: _lightColors.border,
-        showDragHandle: true,
+        showDragHandle: false,
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: _lightColors.panel,

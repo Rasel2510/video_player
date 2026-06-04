@@ -10,39 +10,66 @@ class SortSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+    final bottomPad = MediaQuery.of(context).padding.bottom;
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: context.colors.panel,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('SORT BY', style: context.textStyles.label),
-          const SizedBox(height: 16),
+          // ── Drag handle ──────────────────────────────────────────────────
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: context.colors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+
+          // ── Header ───────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Text('SORT BY', style: context.textStyles.label),
+          ),
+
+          // ── Options ──────────────────────────────────────────────────────
           ...SortOption.values.map((opt) {
             final selected = opt == current;
             return Material(
               color: Colors.transparent,
               child: InkWell(
                 onTap: () => onSelect(opt),
-                borderRadius: AppRadius.sm,
+                splashColor: context.colors.accentSoft,
+                highlightColor: Colors.transparent,
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 14),
                   child: Row(
                     children: [
-                      Icon(opt.icon,
-                          size: 20,
-                          color: selected
-                              ? context.colors.accent
-                              : context.colors.textSecondary),
+                      Icon(
+                        opt.icon,
+                        size: 20,
+                        color: selected
+                            ? context.colors.accent
+                            : context.colors.textSecondary,
+                      ),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Text(
                           opt.label,
                           style: TextStyle(
                             fontSize: 14,
-                            fontWeight:
-                                selected ? FontWeight.w600 : FontWeight.w400,
+                            fontWeight: selected
+                                ? FontWeight.w600
+                                : FontWeight.w400,
                             color: selected
                                 ? context.colors.accent
                                 : context.colors.textPrimary,
@@ -58,6 +85,8 @@ class SortSheet extends StatelessWidget {
               ),
             );
           }),
+
+          SizedBox(height: 16 + bottomPad),
         ],
       ),
     );

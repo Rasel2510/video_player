@@ -17,6 +17,7 @@ class AudioTrackSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: context.colors.panel,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -122,7 +123,7 @@ class AudioTrackSheet extends StatelessWidget {
                 },
               ),
             ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16 + MediaQuery.of(context).padding.bottom),
         ],
       ),
     );

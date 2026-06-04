@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -35,7 +36,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // ── Seek flash ─────────────────────────────────────────────────────────────
   late final AnimationController _seekFlashCtrl = AnimationController(
     vsync: this,
@@ -47,6 +48,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   );
   bool _seekFlashLeft = false;
   bool _seekFlashRight = false;
+
+  // ── Lock icon animation ────────────────────────────────────────────────────
+  // Driven locally so showing/hiding the lock icon never triggers a state
+  // update → no Consumer rebuild → no platform-view re-composite → no white flash.
+  late final AnimationController _lockIconCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 250),
+  );
+  Timer? _lockIconLocalTimer;
 
   // ── Scale / pinch-to-zoom ──────────────────────────────────────────────────
   // We handle all pointer gestures through onScale* so that single-finger
@@ -87,8 +97,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   void dispose() {
     _seekFlashCtrl.dispose();
+    _lockIconCtrl.dispose();
+    _lockIconLocalTimer?.cancel();
     _notifier.dispose();
     super.dispose();
+  }
+
+  // ── Lock icon helpers ──────────────────────────────────────────────────────
+
+  /// Show the lock icon using a local AnimationController — never updates
+  /// provider state — so the Video platform view is never re-composited.
+  void _showLockIconLocal() {
+    _lockIconCtrl.forward();
+    _lockIconLocalTimer?.cancel();
+    _lockIconLocalTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) _lockIconCtrl.reverse();
+    });
+  }
+
+  void _hideLockIconLocal() {
+    _lockIconLocalTimer?.cancel();
+    _lockIconCtrl.reverse();
   }
 
   // ── Seek flash ─────────────────────────────────────────────────────────────
@@ -113,6 +142,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _showSpeedSheet(BuildContext ctx, double speed) => showModalBottomSheet(
         context: ctx,
         useSafeArea: true,
+        // Prevent Flutter from drawing its own system drag handle on top of
+        // the sheet's built-in handle, which caused a double-bar appearance.
+        showDragHandle: false,
+        // The sheet Container already has its own rounded background colour.
+        // Without this, the Modal's default white/surface background bleeds
+        // through the rounded corners making the sheet look semi-transparent.
+        backgroundColor: Colors.transparent,
         builder: (_) => SpeedSheet(
           currentSpeed: speed,
           onSelect: (s) => _notifier.setSpeed(s),
@@ -123,6 +159,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       showModalBottomSheet(
         context: ctx,
         useSafeArea: true,
+        showDragHandle: false,
+        backgroundColor: Colors.transparent,
         builder: (_) => VolumeSheet(
           volume: volume,
           onChanged: (v) => _notifier.setVolume(v),
@@ -134,6 +172,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     showModalBottomSheet(
       context: ctx,
       useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
       builder: (_) => AudioTrackSheet(
         tracks: s.audioTracks,
         selectedTrack: s.selectedAudioTrack,
@@ -148,6 +188,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       context: ctx,
       useSafeArea: true,
       isScrollControlled: true,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
       builder: (_) => SubtitleSheet(
         tracks: s.subtitleTracks,
         selectedTrack: s.selectedSubtitleTrack,
@@ -182,13 +224,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         backgroundColor: Colors.black,
         body: Consumer(
           builder: (context, ref, child) {
-            // Single combined select — three separate selects would register
-            // three listeners; this registers one and only rebuilds when any
-            // of the three values actually change.
-            final (:isLocked, :lockIconVisible, :controlsVisible) =
+            // Watch only isLocked + controlsVisible.
+            // lockIconVisible is intentionally NOT watched here — its
+            // show/hide is driven by _lockIconCtrl (an AnimationController
+            // local to this State) so it never triggers a Consumer rebuild
+            // and therefore never re-composites the Video platform view.
+            final (:isLocked, :controlsVisible) =
                 ref.watch(playerProvider.select((s) => (
                   isLocked: s.isLocked,
-                  lockIconVisible: s.lockIconVisible,
                   controlsVisible: s.controlsVisible,
                 )));
 
@@ -299,22 +342,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 ),
 
                 // ── Lock touch-absorber — always in tree, active only when locked ──
-                //
-                // ROOT CAUSE OF WHITE FLASH: using `if (isLocked)` here adds/
-                // removes widgets from the Stack on every lock toggle. Flutter
-                // must re-composite the platform Video view when its sibling
-                // list changes, which produces a single white frame.
-                //
-                // FIX: keep this widget permanently in the tree. Use
-                // IgnorePointer to toggle touch-absorption instead of
-                // conditional existence. The Video platform view never sees a
-                // sibling-list mutation, so no re-composition occurs.
+                // IgnorePointer switches touch-absorption without adding/removing
+                // siblings, so the Video platform view is never re-composited.
                 Positioned.fill(
                   child: IgnorePointer(
                     ignoring: !isLocked,
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTap: _notifier.showLockIcon,
+                      // When the locked screen is tapped, show the lock icon
+                      // via _lockIconCtrl — a purely local animation that never
+                      // updates provider state and therefore causes zero rebuilds
+                      // (and zero white flashes on the video layer).
+                      onTap: isLocked ? _showLockIconLocal : null,
                       onScaleStart: (_) {},
                       onScaleUpdate: (_) {},
                       onScaleEnd: (_) {},
@@ -323,18 +362,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   ),
                 ),
 
-                // ── Lock icon — always in tree, fades in/out ─────────────────
-                // Never removed from the Stack: opacity 0.0 when unlocked,
-                // fades to 1.0 when locked+icon visible. Duration.zero on
-                // hide to avoid a lingering translucent frame.
-                AnimatedOpacity(
-                  opacity: isLocked && lockIconVisible ? 1.0 : 0.0,
-                  duration: (isLocked && lockIconVisible)
-                      ? const Duration(milliseconds: 250)
-                      : Duration.zero,
+                // ── Lock icon — driven by local AnimationController ───────────
+                // FadeTransition + AnimationController never touches provider
+                // state, so no Consumer rebuilds, no platform-view re-composite,
+                // no white flash when the icon appears/disappears.
+                FadeTransition(
+                  opacity: _lockIconCtrl,
                   child: IgnorePointer(
-                    ignoring: !(isLocked && lockIconVisible),
-                    child: LockOverlay(onUnlock: _notifier.toggleLock),
+                    // Pass taps through when not visible (controller value == 0)
+                    ignoring: !isLocked,
+                    child: LockOverlay(
+                      onUnlock: () {
+                        _hideLockIconLocal();
+                        _notifier.toggleLock();
+                      },
+                    ),
                   ),
                 ),
               ],
@@ -557,7 +599,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         onSeekEnd: notifier.endSeek,
                         onPlayNext: notifier.playNext,
                         onPlayPrevious: notifier.playPrevious,
-                        onToggleLock: notifier.toggleLock,
+                        onToggleLock: () {
+                          // When locking: show the lock icon locally so the
+                          // user knows the screen is now locked, then auto-hide.
+                          // When unlocking: the LockOverlay.onUnlock callback
+                          // already called _hideLockIconLocal + toggleLock.
+                          final willLock = !ref.read(playerProvider).isLocked;
+                          notifier.toggleLock();
+                          if (willLock) _showLockIconLocal();
+                        },
                         onToggleRepeat: notifier.cycleLoopMode,
                       ),
                     );
