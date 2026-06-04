@@ -199,9 +199,13 @@ class _Shimmer extends AnimatedWidget {
   const _Shimmer({required Animation<double> animation})
       : super(listenable: animation);
 
+  // Const white container — reused across every frame; only the Opacity
+  // wrapper is rebuilt, eliminating the Color.fromRGBO allocation per tick.
+  static const _kWhiteBox = ColoredBox(color: Colors.white);
+
   @override
   Widget build(BuildContext context) {
     final value = (listenable as Animation<double>).value;
-    return Container(color: Color.fromRGBO(255, 255, 255, value));
+    return Opacity(opacity: value, child: _kWhiteBox);
   }
 }

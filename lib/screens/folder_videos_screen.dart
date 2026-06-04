@@ -75,9 +75,13 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
 
   Future<void> _loadPositions() async {
     final futures = widget.folder.videos.map((vf) async {
-      final pos = await PositionService.instance.load(vf.path);
-      final dur = await DurationCacheService.instance.getDuration(vf.path);
-      return (vf.path, pos ?? Duration.zero, dur);
+      // Load position and duration in parallel per video — they are
+      // independent SharedPreferences reads with no ordering dependency.
+      final results = await Future.wait([
+        PositionService.instance.load(vf.path),
+        DurationCacheService.instance.getDuration(vf.path),
+      ]);
+      return (vf.path, results[0] ?? Duration.zero, results[1] as Duration?);
     });
     final results = await Future.wait(futures);
     if (!mounted) return;

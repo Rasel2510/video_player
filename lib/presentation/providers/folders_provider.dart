@@ -54,16 +54,16 @@ List<String> _discoverStorageRoots() {
 
 // ── Cache helpers ─────────────────────────────────────────────────────────────
 
-const _cacheKey = 'folder_scan_cache_v2';
+const _cacheKey     = 'folder_scan_cache_v2';
 const _cacheTimeKey = 'folder_scan_time_v2';
-const _cacheTtl = Duration(hours: 12);
+const _cacheTtl     = Duration(hours: 12);
 
 // We store a lightweight "snapshot" of folder→videoCount to detect
 // new folders/files without doing a full scan.
-const _snapshotKey = 'folder_scan_snapshot_v2';
+const _snapshotKey  = 'folder_scan_snapshot_v2';
 
 // Paths seen by the user (acknowledged). New ones get a "NEW" badge.
-const _seenPathsKey = 'folder_scan_seen_paths_v1';
+const _seenPathsKey     = 'folder_scan_seen_paths_v1';
 const _seenPathsInitKey = 'folder_scan_seen_paths_init_v1'; // true once written
 
 /// Returns null on fresh install (never scanned before).
@@ -93,9 +93,9 @@ Future<void> _saveSeenPaths(Set<String> paths) async {
 Future<List<VideoFolder>?> _loadCache() async {
   try {
     final prefs = await _p;
-    final ts = prefs.getInt(_cacheTimeKey) ?? 0;
-    final age =
-        DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ts));
+    final ts  = prefs.getInt(_cacheTimeKey) ?? 0;
+    final age = DateTime.now().difference(
+        DateTime.fromMillisecondsSinceEpoch(ts));
     if (age > _cacheTtl) return null;
 
     final raw = prefs.getString(_cacheKey);
@@ -112,8 +112,7 @@ Future<void> _saveCache(List<VideoFolder> folders) async {
   try {
     final prefs = await _p;
     await prefs.setInt(_cacheTimeKey, DateTime.now().millisecondsSinceEpoch);
-    await prefs.setString(
-        _cacheKey, jsonEncode(folders.map(_folderToMap).toList()));
+    await prefs.setString(_cacheKey, jsonEncode(folders.map(_folderToMap).toList()));
     // Save snapshot: Map<folderPath, videoCount>
     final snapshot = {for (final f in folders) f.path: f.videoCount};
     await prefs.setString(_snapshotKey, jsonEncode(snapshot));
@@ -134,8 +133,9 @@ Future<bool> _hasNewContent() async {
     final rawSnapshot = prefs.getString(_snapshotKey);
     if (rawSnapshot == null) return true; // no snapshot → treat as changed
 
-    final oldSnapshot = Map<String, int>.from((jsonDecode(rawSnapshot) as Map)
-        .map((k, v) => MapEntry(k as String, v as int)));
+    final oldSnapshot = Map<String, int>.from(
+        (jsonDecode(rawSnapshot) as Map)
+            .map((k, v) => MapEntry(k as String, v as int)));
 
     final roots = _discoverStorageRoots();
 
@@ -192,7 +192,7 @@ void _quickScanSync(Directory dir, Map<String, int> snapshot) {
 
     if (videoCount > 0) {
       final cached = snapshot[dir.path];
-      if (cached == null || cached != videoCount) throw const _ChangedSignal();
+      if (cached == null || cached != videoCount) throw _ChangedSignal();
     }
 
     for (final sub in subs) {
@@ -203,16 +203,15 @@ void _quickScanSync(Directory dir, Map<String, int> snapshot) {
   } catch (_) {}
 }
 
+
 Map<String, dynamic> _folderToMap(VideoFolder f) => {
       'path': f.path,
-      'videos': f.videos
-          .map((v) => {
-                'path': v.path,
-                'name': v.name,
-                'size': v.size,
-                'modified': v.modified.millisecondsSinceEpoch,
-              })
-          .toList(),
+      'videos': f.videos.map((v) => {
+            'path': v.path,
+            'name': v.name,
+            'size': v.size,
+            'modified': v.modified.millisecondsSinceEpoch,
+          }).toList(),
     };
 
 VideoFolder _folderFromMap(Map<String, dynamic> m) => VideoFolder(
@@ -222,8 +221,7 @@ VideoFolder _folderFromMap(Map<String, dynamic> m) => VideoFolder(
                 path: v['path'] as String,
                 name: v['name'] as String,
                 size: v['size'] as int,
-                modified:
-                    DateTime.fromMillisecondsSinceEpoch(v['modified'] as int),
+                modified: DateTime.fromMillisecondsSinceEpoch(v['modified'] as int),
               ))
           .toList(),
     );
@@ -240,10 +238,10 @@ class FoldersState {
   final Set<String> newPaths;
 
   const FoldersState({
-    this.folders = const [],
+    this.folders    = const [],
     this.isScanning = false,
     this.scanProgress = 0,
-    this.fromCache = false,
+    this.fromCache  = false,
     this.storageRoots = const [],
     this.newPaths = const {},
   });
@@ -251,24 +249,25 @@ class FoldersState {
   FoldersState copyWith({
     List<VideoFolder>? folders,
     bool? isScanning,
-    int? scanProgress,
+    int?  scanProgress,
     bool? fromCache,
     List<String>? storageRoots,
     Set<String>? newPaths,
   }) =>
       FoldersState(
-        folders: folders ?? this.folders,
-        isScanning: isScanning ?? this.isScanning,
+        folders:      folders      ?? this.folders,
+        isScanning:   isScanning   ?? this.isScanning,
         scanProgress: scanProgress ?? this.scanProgress,
-        fromCache: fromCache ?? this.fromCache,
+        fromCache:    fromCache    ?? this.fromCache,
         storageRoots: storageRoots ?? this.storageRoots,
-        newPaths: newPaths ?? this.newPaths,
+        newPaths:     newPaths     ?? this.newPaths,
       );
 }
 
 // ── Notifier ──────────────────────────────────────────────────────────────────
 
 class FoldersNotifier extends Notifier<FoldersState> {
+
   @override
   FoldersState build() => const FoldersState();
 
@@ -346,7 +345,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
     // Precompute sort keys for both videos and folders before sorting.
     final merged = folderMap.entries.map((e) {
       final videos = e.value;
-      final vkeys = {for (final v in videos) v: v.name.toLowerCase()};
+      final vkeys  = {for (final v in videos) v: v.name.toLowerCase()};
       videos.sort((a, b) => vkeys[a]!.compareTo(vkeys[b]!));
       return VideoFolder(path: e.key, videos: videos);
     }).toList();
@@ -356,20 +355,18 @@ class FoldersNotifier extends Notifier<FoldersState> {
     // Single pass — compute newPaths and allPaths simultaneously.
     // null seenPaths = fresh install; save all as seen, no NEW badges.
     final seenPaths = await _loadSeenPaths();
-    final Set<String> newPaths = {};
-    final Set<String> allPaths = {};
+    final Set<String> newPaths  = {};
+    final Set<String> allPaths  = {};
 
     for (final folder in merged) {
       allPaths.add(folder.path);
-      if (seenPaths != null &&
-          seenPaths.isNotEmpty &&
+      if (seenPaths != null && seenPaths.isNotEmpty &&
           !seenPaths.contains(folder.path)) {
         newPaths.add(folder.path);
       }
       for (final video in folder.videos) {
         allPaths.add(video.path);
-        if (seenPaths != null &&
-            seenPaths.isNotEmpty &&
+        if (seenPaths != null && seenPaths.isNotEmpty &&
             !seenPaths.contains(video.path)) {
           newPaths.add(video.path);
           newPaths.add(folder.path); // mark parent folder new too
