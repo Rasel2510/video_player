@@ -27,169 +27,189 @@ class SubtitleSheet extends StatelessWidget {
         maxHeight: MediaQuery.of(context).size.height * 0.75,
       ),
       child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF111111),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        decoration: BoxDecoration(
+          color: context.colors.panel,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-        children: [
-          // Handle
-          Container(
-            width: 36,
-            height: 4,
-            margin: const EdgeInsets.only(top: 12, bottom: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF333333),
-              borderRadius: BorderRadius.circular(2),
+          children: [
+            // ── Drag handle ──────────────────────────────────────────────
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: context.colors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
             ),
-          ),
 
-          // Header row
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: Row(
-              children: [
-                Icon(Icons.subtitles_outlined,
-                    color: context.colors.accent, size: 18),
-                const SizedBox(width: 10),
-                const Text('Subtitles',
+            // ── Header row ───────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Row(
+                children: [
+                  Icon(Icons.subtitles_outlined,
+                      color: context.colors.accent, size: 18),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Subtitles',
                     style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold)),
-                const Spacer(),
-                // Global on/off toggle
-                GestureDetector(
-                  onTap: () {
-                    onToggle();
-                    Navigator.pop(context);
-                  },
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: subtitlesEnabled
-                          ? context.colors.accent.withValues(alpha: 0.15)
-                          : const Color(0xFF222222),
-                      border: Border.all(
-                        color: subtitlesEnabled
-                            ? context.colors.accent
-                            : const Color(0xFF333333),
-                      ),
-                      borderRadius: BorderRadius.circular(4),
+                      color: context.colors.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
                     ),
-                    child: Text(
-                      subtitlesEnabled ? 'ON' : 'OFF',
-                      style: TextStyle(
+                  ),
+                  const Spacer(),
+                  // Global on/off toggle
+                  GestureDetector(
+                    onTap: () {
+                      onToggle();
+                      Navigator.pop(context);
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
                         color: subtitlesEnabled
-                            ? context.colors.accent
-                            : const Color(0xFF666666),
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'monospace',
-                        letterSpacing: 1,
+                            ? context.colors.accentSoft
+                            : context.colors.elevated,
+                        border: Border.all(
+                          color: subtitlesEnabled
+                              ? context.colors.accent
+                              : context.colors.border,
+                        ),
+                        borderRadius: AppRadius.sm,
+                      ),
+                      child: Text(
+                        subtitlesEnabled ? 'ON' : 'OFF',
+                        style: TextStyle(
+                          color: subtitlesEnabled
+                              ? context.colors.accent
+                              : context.colors.textMuted,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                          letterSpacing: 1,
+                        ),
                       ),
                     ),
+                  ),
+                ],
+              ),
+            ),
+
+            Divider(color: context.colors.divider, height: 1),
+
+            if (tracks.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No subtitle tracks in this file.\nLoad an external .srt file using the button below.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: context.colors.textMuted,
+                    fontSize: 12,
+                    height: 1.5,
                   ),
                 ),
-              ],
-            ),
-          ),
+              )
+            else
+              // Track list — scrollable when many tracks
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: tracks.length,
+                  itemBuilder: (_, i) {
+                    final track = tracks[i];
+                    final isSelected =
+                        subtitlesEnabled && selectedTrack?.id == track.id;
+                    final label = track.title?.isNotEmpty == true
+                        ? track.title!
+                        : track.language?.isNotEmpty == true
+                            ? track.language!
+                            : 'Track ${i + 1}';
 
-          const Divider(color: Color(0xFF1E1E1E), height: 1),
-
-          if (tracks.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'No subtitle tracks in this file.\nLoad an external .srt file using the button below.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Color(0xFF555555), fontSize: 12),
+                    return InkWell(
+                      onTap: () {
+                        onSelect(track);
+                        Navigator.pop(context);
+                      },
+                      splashColor: context.colors.accentSoft,
+                      highlightColor: Colors.transparent,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 14),
+                        child: Row(
+                          children: [
+                            Icon(
+                              isSelected
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_off,
+                              color: isSelected
+                                  ? context.colors.accent
+                                  : context.colors.textMuted,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                label,
+                                style: TextStyle(
+                                  color: isSelected
+                                      ? context.colors.textPrimary
+                                      : context.colors.textSecondary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            if (isSelected)
+                              Icon(Icons.check_rounded,
+                                  color: context.colors.accent, size: 16),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
-            )
-          else
-            // Track list
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: tracks.length,
-              itemBuilder: (_, i) {
-                final track = tracks[i];
-                final isSelected =
-                    subtitlesEnabled && selectedTrack?.id == track.id;
-                final label = track.title?.isNotEmpty == true
-                    ? track.title!
-                    : track.language?.isNotEmpty == true
-                        ? track.language!
-                        : 'Track ${i + 1}';
 
-                return InkWell(
-                  onTap: () {
-                    onSelect(track);
+            // ── Load external subtitle button ────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
                     Navigator.pop(context);
                   },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 14),
-                    child: Row(
-                      children: [
-                        Icon(
-                          isSelected
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_off,
-                          color: isSelected
-                              ? context.colors.accent
-                              : const Color(0xFF444444),
-                          size: 18,
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Text(
-                            label,
-                            style: TextStyle(
-                              color: isSelected
-                                  ? Colors.white
-                                  : const Color(0xFF999999),
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                        if (isSelected)
-                          Icon(Icons.check,
-                              color: context.colors.accent, size: 16),
-                      ],
+                  icon: Icon(Icons.folder_open_outlined,
+                      size: 16, color: context.colors.accent),
+                  label: Text(
+                    'Load external subtitle',
+                    style: TextStyle(
+                      color: context.colors.accent,
+                      fontSize: 12,
+                      letterSpacing: 0.5,
                     ),
                   ),
-                );
-              },
-            ),
-
-          // Load external subtitle button
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-            child: OutlinedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                // TODo: file_picker to load .srt/.ass/.vtt — pass to player
-              },
-              icon: Icon(Icons.folder_open_outlined,
-                  size: 16, color: context.colors.accent),
-              label: Text('Load external subtitle',
-                  style: TextStyle(
-                      color: context.colors.accent, fontSize: 12, letterSpacing: 0.5)),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF333333)),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(4)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: context.colors.border),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    shape: const RoundedRectangleBorder(
+                        borderRadius: AppRadius.sm),
+                  ),
+                ),
               ),
             ),
-          ),
-        ],
-        ),  // Column
-      ),    // Container
-    );      // ConstrainedBox
+          ],
+        ),
+      ),
+    );
   }
 }
