@@ -44,10 +44,12 @@ class VideoLocalDataSource {
       }
     } catch (_) {}
 
-    dirs.sort((a, b) =>
-        p.basename(a).toLowerCase().compareTo(p.basename(b).toLowerCase()));
-    videos.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    // Precompute sort keys — p.basename + toLowerCase in a comparator body
+    // would run O(n log n) times instead of once per element.
+    final dirKeys   = {for (final d in dirs)   d: p.basename(d).toLowerCase()};
+    final videoKeys = {for (final v in videos) v: v.name.toLowerCase()};
+    dirs.sort((a, b)   => dirKeys[a]!.compareTo(dirKeys[b]!));
+    videos.sort((a, b) => videoKeys[a]!.compareTo(videoKeys[b]!));
 
     return FolderContentsEntity(subDirectories: dirs, videos: videos);
   }

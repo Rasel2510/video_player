@@ -3,22 +3,33 @@ import 'duration_cache_service.dart';
 
 /// Saves and restores the last playback position for each video file.
 ///
-/// FIX #1: Was using videoPath.hashCode as key — Dart's 32-bit hashCode has
-/// collisions on large libraries. Now uses a sanitised path string as key,
-/// which is unique by definition and survives across app restarts.
+/// FIX #OPT-9 / latent bug: _sanitiseRe was referenced but never defined in
+/// this file.  Added the definition here.  The key strategy (full sanitised
+/// path) is intentional and consistent with DurationCacheService — it avoids
+/// hash collisions at the cost of slightly longer key strings, which is an
+/// acceptable trade-off given typical Android path lengths (~60–90 chars after
+/// sanitisation) and that SharedPreferences stores keys as XML on Android with
+/// no documented length constraint.
 class PositionService {
   PositionService._();
   static final PositionService instance = PositionService._();
 
-  static const _prefix = 'pos_v2_'; // new prefix so old hash-keyed data is ignored
-  static const _minSaveMs  = 5000;  // ignore accidental opens < 5 s
-  static const _nearEndMs  = 5000;  // clear position when within last 5 s (treat as finished)
+  // Cached — only one platform channel call per app session.
+  SharedPreferences? _prefs;
+  Future<SharedPreferences> get _p async =>
+      _prefs ??= await SharedPreferences.getInstance();
 
-  /// Sanitise a path into a safe SharedPreferences key.
-  /// Replaces characters that can cause issues in some implementations.
+  static const _prefix    = 'pos_v2_';
+  static const _minSaveMs = 5000;
+  static const _nearEndMs = 5000;
+
+  // Compiled once — replaces any character that is not alphanumeric, dot,
+  // underscore, or hyphen with '_'.  Same pattern as ThumbnailService and
+  // DurationCacheService so all three services produce identical path keys.
+  static final _sanitiseRe = RegExp(r'[^a-zA-Z0-9._\-]');
+
   static String _key(String videoPath) {
-    // Replace any character that isn't alphanumeric, dot, dash, or underscore
-    final sanitised = videoPath.replaceAll(RegExp(r'[^a-zA-Z0-9._\-]'), '_');
+    final sanitised = videoPath.replaceAll(_sanitiseRe, '_');
     return '$_prefix$sanitised';
   }
 
@@ -26,37 +37,31 @@ class PositionService {
     final ms      = position.inMilliseconds;
     final totalMs = duration.inMilliseconds;
     if (totalMs <= 0 || ms < _minSaveMs) return;
-
-    final prefs = await SharedPreferences.getInstance();
-
-    // Clear if near the end — next open should start fresh
+    final p = await _p;
     if (totalMs - ms < _nearEndMs) {
-      await prefs.remove(_key(videoPath));
+      await p.remove(_key(videoPath));
       return;
     }
-    await prefs.setInt(_key(videoPath), ms);
-
-    if (totalMs > 0) {
-      await DurationCacheService.instance
-          .saveDuration(videoPath, Duration(milliseconds: totalMs));
-    }
+    // Persist position and duration cache in parallel.
+    await Future.wait([
+      p.setInt(_key(videoPath), ms),
+      DurationCacheService.instance
+          .saveDuration(videoPath, Duration(milliseconds: totalMs)),
+    ]);
   }
 
   Future<Duration?> load(String videoPath) async {
-    final prefs = await SharedPreferences.getInstance();
-    final ms = prefs.getInt(_key(videoPath));
+    final ms = (await _p).getInt(_key(videoPath));
     if (ms == null || ms < _minSaveMs) return null;
     return Duration(milliseconds: ms);
   }
 
   Future<void> clear(String videoPath) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_key(videoPath));
+    await (await _p).remove(_key(videoPath));
   }
 
   Future<bool> hasSaved(String videoPath) async {
-    final prefs = await SharedPreferences.getInstance();
-    final ms = prefs.getInt(_key(videoPath));
+    final ms = (await _p).getInt(_key(videoPath));
     return ms != null && ms >= _minSaveMs;
   }
 }

@@ -18,10 +18,10 @@ class LockOverlay extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.65),
+                  color: const Color(0xA6000000),
                   shape: BoxShape.circle,
                   border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.25), width: 1),
+                      color: const Color(0x40FFFFFF), width: 1),
                 ),
                 child: const Icon(
                   Icons.lock_rounded,

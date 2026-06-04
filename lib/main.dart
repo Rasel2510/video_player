@@ -14,5 +14,8 @@ void main() {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+  // Set edge-to-edge at startup so the status bar and nav bar are never
+  // covered by a white system overlay on the first frame.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   runApp(const ProviderScope(child: VideoPlayerApp()));
 }

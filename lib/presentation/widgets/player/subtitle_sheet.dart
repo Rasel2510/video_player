@@ -20,13 +20,19 @@ class SubtitleSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF111111),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    // isScrollControlled=true is set at the call site so the sheet can grow
+    // as needed. Constrain to 75% of screen height so it never covers the video.
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.75,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF111111),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
         children: [
           // Handle
           Container(
@@ -182,7 +188,8 @@ class SubtitleSheet extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
+        ),  // Column
+      ),    // Container
+    );      // ConstrainedBox
   }
 }

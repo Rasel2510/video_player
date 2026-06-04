@@ -1,3 +1,4 @@
+import 'package:path/path.dart' as p;
 import 'dart:io';
 import 'dart:isolate';
 import '../models/video_file.dart';
@@ -19,7 +20,10 @@ class FolderScanner {
       }
     } catch (_) {}
 
-    files.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    // Precompute lowercased names so toLowerCase() isn't called O(n log n)
+    // times by the sort comparator — once per element instead.
+    final keys = {for (final f in files) f: f.name.toLowerCase()};
+    files.sort((a, b) => keys[a]!.compareTo(keys[b]!));
     return files;
   }
 
@@ -55,7 +59,8 @@ class FolderScanner {
 
     final files = <VideoFile>[];
     _recurseSync(dir, files, (count) => data.sendPort.send(count));
-    files.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final keys = {for (final f in files) f: f.name.toLowerCase()};
+    files.sort((a, b) => keys[a]!.compareTo(keys[b]!));
     data.sendPort.send(files);
   }
 
@@ -115,12 +120,14 @@ class FolderScanner {
     });
 
     final folders = folderMap.entries.map((e) {
-      final videos = e.value
-        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      final videos = e.value;
+      final vkeys = {for (final v in videos) v: v.name.toLowerCase()};
+      videos.sort((a, b) => vkeys[a]!.compareTo(vkeys[b]!));
       return VideoFolder(path: e.key, videos: videos);
     }).toList();
 
-    folders.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final fkeys = {for (final f in folders) f: f.name.toLowerCase()};
+    folders.sort((a, b) => fkeys[a]!.compareTo(fkeys[b]!));
     data.sendPort.send(folders);
   }
 
@@ -139,7 +146,7 @@ class FolderScanner {
           final vf = VideoFile.fromFile(entity);
           if (vf != null && vf.size >= 1024) videosInThisDir.add(vf);
         } else if (entity is Directory) {
-          final name = entity.path.split(Platform.pathSeparator).last;
+          final name = p.basename(entity.path);
           if (!name.startsWith('.')) subDirs.add(entity);
         }
       }
@@ -170,7 +177,7 @@ class FolderScanner {
     try {
       for (final entity in dir.listSync(followLinks: false)) {
         if (entity is Directory) {
-          final name = entity.path.split(Platform.pathSeparator).last;
+          final name = p.basename(entity.path);
           if (!name.startsWith('.')) dirs.add(entity);
         } else if (entity is File && VideoFile.isVideoFile(entity.path)) {
           final vf = VideoFile.fromFile(entity);
@@ -179,12 +186,12 @@ class FolderScanner {
       }
     } catch (_) {}
 
-    dirs.sort((a, b) {
-      final na = a.path.split(Platform.pathSeparator).last.toLowerCase();
-      final nb = b.path.split(Platform.pathSeparator).last.toLowerCase();
-      return na.compareTo(nb);
-    });
-    videos.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    // Precompute sort keys — p.basename is cheaper than split().last
+    // and both are computed once rather than O(n log n) times.
+    final dkeys = {for (final d in dirs) d: p.basename(d.path).toLowerCase()};
+    dirs.sort((a, b) => dkeys[a]!.compareTo(dkeys[b]!));
+    final vkeys2 = {for (final v in videos) v: v.name.toLowerCase()};
+    videos.sort((a, b) => vkeys2[a]!.compareTo(vkeys2[b]!));
 
     return FolderContents(dirs: dirs, videos: videos);
   }

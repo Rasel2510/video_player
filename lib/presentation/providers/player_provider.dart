@@ -38,6 +38,14 @@ extension RotationModeX on RotationMode {
 
 enum SwipeGesture { none, brightness, volume }
 
+// Loop/repeat mode
+enum LoopMode { none, loopAll, loopOne }
+
+extension LoopModeX on LoopMode {
+  LoopMode get next => LoopMode.values[(index + 1) % LoopMode.values.length];
+  bool get isActive => this != LoopMode.none;
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 class PlayerState {
@@ -63,7 +71,6 @@ class PlayerState {
   final SubtitleTrack? selectedSubtitleTrack;
   final bool subtitlesEnabled;
 
-  // ── New fields ─────────────────────────────────────────────────────────────
   /// True when the gesture-lock button has been activated.
   final bool isLocked;
   final bool lockIconVisible;
@@ -77,6 +84,7 @@ class PlayerState {
 
   /// Pinch-to-zoom scale factor (1.0 = normal, clamped to 0.5–4.0).
   final double zoomScale;
+  final LoopMode loopMode;
 
   const PlayerState({
     this.isInitialized = false,
@@ -106,6 +114,7 @@ class PlayerState {
     this.errorMessage,
     this.autoPlayCountdown,
     this.zoomScale = 1.0,
+    this.loopMode = LoopMode.none,
   });
 
   double get progress => duration.inMilliseconds > 0
@@ -154,6 +163,7 @@ class PlayerState {
     String? errorMessage,
     int? autoPlayCountdown,
     double? zoomScale,
+    LoopMode? loopMode,
     // Sentinel to allow explicitly nulling autoPlayCountdown
     bool clearAutoPlay = false,
     bool clearError = false,
@@ -188,6 +198,7 @@ class PlayerState {
         autoPlayCountdown:
             clearAutoPlay ? null : (autoPlayCountdown ?? this.autoPlayCountdown),
         zoomScale: zoomScale ?? this.zoomScale,
+        loopMode: loopMode ?? this.loopMode,
       );
 }
 
@@ -202,9 +213,12 @@ class PlayerNotifier extends Notifier<PlayerState> {
   Timer? _saveTimer;
   Timer? _autoPlayTimer;
   String? _currentPath;
-  double _savedBrightness = 0.5;
+
   bool _hasStartedPlaying = false;
   final List<StreamSubscription> _subs = [];
+
+  // Single ScreenBrightness instance — avoids creating a new object every call.
+  final _brightness = ScreenBrightness();
 
   // Guards against notification panel callbacks after dispose begins.
   bool _isDisposing = false;
@@ -226,13 +240,26 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _isDisposing = false;
     _hasStartedPlaying = false;
 
-    // Load persisted preferences.
-    final fitModeIdx = await PlayerPreferencesService.instance.loadFitModeIndex();
-    final savedSpeed = await PlayerPreferencesService.instance.loadSpeed();
-    final fitMode    = FitMode.values[fitModeIdx.clamp(0, FitMode.values.length - 1)];
+    // Load persisted prefs, device volume, and brightness all in parallel —
+    // FIX #OPT-5: brightness reads were previously sequential after this block,
+    // adding ~20 ms of latency on every player open.
+    final results = await Future.wait([
+      PlayerPreferencesService.instance.loadFitModeIndex(),     // [0]
+      PlayerPreferencesService.instance.loadSpeed(),             // [1]
+      VolumeService.instance.getDeviceVolume(),                  // [2]
+      _brightness.current.catchError((_) => 0.5),               // [3]
+      BrightnessService.instance.getBrightness()                 // [4]
+          .then<Object?>((v) => v)
+          .catchError((_) => null),
+    ]);
+    final fitModeIdx    = results[0] as int;
+    final savedSpeed    = results[1] as double;
+    final deviceVol     = results[2] as double;
+    final currentBri    = results[3] as double;
+    final savedBri      = results[4] as double?;
+    final fitMode       = FitMode.values[fitModeIdx.clamp(0, FitMode.values.length - 1)];
 
-    // Read device system volume (0.0–1.0), store as 0–100 in state for display.
-    final deviceVol = await VolumeService.instance.getDeviceVolume();
+    final activeBri  = savedBri ?? currentBri;
 
     state = PlayerState(
       folderVideos: folderVideos,
@@ -240,6 +267,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
       volume: deviceVol * 100,
       fitMode: fitMode,
       playbackSpeed: savedSpeed,
+      brightness: activeBri,
     );
 
     _disposeInternal();
@@ -248,21 +276,20 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _player = Player();
     _videoController = VideoController(_player!);
 
-    try {
-      _savedBrightness = await ScreenBrightness().current;
-      final saved = await BrightnessService.instance.getBrightness();
-      if (saved != null) {
-        state = state.copyWith(brightness: saved);
-        await ScreenBrightness().setScreenBrightness(saved);
-      } else {
-        state = state.copyWith(brightness: _savedBrightness);
-      }
-    } catch (_) {}
+    // Apply the resolved brightness (no-op if it equals the system default).
+    if (savedBri != null) {
+      try { await _brightness.setScreenBrightness(savedBri); } catch (_) {}
+    }
 
     // Always run media_kit at full internal volume — device volume controls output.
     await _player!.setVolume(100);
     await _player!.setRate(savedSpeed);
 
+    // FIX #OPT-10: removeListener first so that a re-entrant init() (e.g. after
+    // an error retry) doesn't silently orphan the previous global slot.
+    // FlutterVolumeController only holds one listener at a time; if addListener
+    // is called twice the second call overwrites the first without cleanup.
+    VolumeService.instance.removeListener();
     VolumeService.instance.addListener((vol) {
       // Only sync device volume changes when not in boost mode.
       // During boost (> 100%), the user explicitly set amplification via the
@@ -359,7 +386,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
     }));
 
     // Safety-net: mark ready after 4 s even if no frame event fires.
-    Future.delayed(const Duration(seconds: 4), markReady);
+    // Guard with _isDisposing so we don't call onReady after the player
+    // has already been disposed (e.g. user backs out immediately).
+    Future.delayed(const Duration(seconds: 4), () {
+      if (!_isDisposing) markReady();
+    });
   }
 
   // ── Position save ──────────────────────────────────────────────────────────
@@ -435,8 +466,16 @@ class PlayerNotifier extends Notifier<PlayerState> {
       _startHideTimer();
     });
 
-    await _player!.setVolume(100);
-    await _player!.setRate(state.playbackSpeed);
+    // Configure player properties in parallel before opening the file.
+    await Future.wait([
+      _player!.setVolume(100),
+      _player!.setRate(state.playbackSpeed),
+      _player!.setPlaylistMode(switch (state.loopMode) {
+        LoopMode.none    => PlaylistMode.none,
+        LoopMode.loopAll => PlaylistMode.loop,
+        LoopMode.loopOne => PlaylistMode.single,
+      }),
+    ]);
     await _player!.open(Media(filePath));
   }
 
@@ -480,6 +519,19 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void resetZoom() => state = state.copyWith(zoomScale: 1.0);
+
+  // ── Loop / repeat ──────────────────────────────────────────────────────────
+
+  void cycleLoopMode() {
+    final next = state.loopMode.next;
+    state = state.copyWith(loopMode: next);
+    _player?.setPlaylistMode(switch (next) {
+      LoopMode.none    => PlaylistMode.none,
+      LoopMode.loopAll => PlaylistMode.loop,
+      LoopMode.loopOne => PlaylistMode.single,
+    });
+    showControls();
+  }
 
   // ── Subtitles ──────────────────────────────────────────────────────────────
 
@@ -549,9 +601,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   Future<void> _applyBrightness(double value) async {
-    try {
-      await ScreenBrightness().setScreenBrightness(value);
-    } catch (_) {}
+    try { await _brightness.setScreenBrightness(value); } catch (_) {}
   }
 
   // ── Internal cleanup ───────────────────────────────────────────────────────
@@ -565,13 +615,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void _disposeInternal() {
-    _saveTimer?.cancel();
     _autoPlayTimer?.cancel();
     _lockIconTimer?.cancel();
-    for (final s in _subs) {
-      s.cancel();
-    }
-    _subs.clear();
+    _disposeStreams(); // cancels _saveTimer + all stream subs
     _player?.dispose();
     _player = null;
     _videoController = null;
@@ -674,27 +720,22 @@ class PlayerNotifier extends Notifier<PlayerState> {
   void cycleRotationMode() {
     final next = state.rotationMode.next;
     state = state.copyWith(rotationMode: next);
-    
-    switch (next) {
-      case RotationMode.landscape:
-        SystemChrome.setPreferredOrientations([
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ]);
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-        break;
-      case RotationMode.portrait:
-        SystemChrome.setPreferredOrientations([
-          DeviceOrientation.portraitUp,
-          DeviceOrientation.portraitDown,
-        ]);
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-        break;
-      case RotationMode.auto:
-        SystemChrome.setPreferredOrientations([]); // System default
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-        break;
-    }
+    final (orientations, uiMode) = switch (next) {
+      RotationMode.landscape => (
+        [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+        SystemUiMode.immersiveSticky,
+      ),
+      RotationMode.portrait => (
+        [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown],
+        SystemUiMode.immersiveSticky,
+      ),
+      RotationMode.auto => (
+        <DeviceOrientation>[],
+        SystemUiMode.edgeToEdge,
+      ),
+    };
+    SystemChrome.setPreferredOrientations(orientations);
+    SystemChrome.setEnabledSystemUIMode(uiMode);
     showControls();
   }
 
@@ -717,9 +758,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _disposeInternal();
     state = const PlayerState();
 
-    try {
-      await ScreenBrightness().resetScreenBrightness();
-    } catch (_) {}
+    try { await _brightness.resetScreenBrightness(); } catch (_) {}
     await WakelockPlus.disable();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,

@@ -22,10 +22,9 @@ class LibraryState {
 
   List<VideoEntity> get filtered {
     if (searchQuery.isEmpty) return videos;
-    return videos
-        .where(
-            (v) => v.name.toLowerCase().contains(searchQuery.toLowerCase()))
-        .toList();
+    // Cache the lowercased query — avoids re-lowercasing it for every element.
+    final q = searchQuery.toLowerCase();
+    return videos.where((v) => v.name.toLowerCase().contains(q)).toList();
   }
 
   LibraryState copyWith({
@@ -63,7 +62,10 @@ class LibraryNotifier extends Notifier<LibraryState> {
       state = state.copyWith(scanProgress: videos.length);
     }
 
-    videos.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    // Precompute keys — for a large scan result this avoids O(n log n)
+    // toLowerCase allocations inside the comparator.
+    final keys = {for (final v in videos) v: v.name.toLowerCase()};
+    videos.sort((a, b) => keys[a]!.compareTo(keys[b]!));
     state = state.copyWith(videos: videos, isScanning: false);
   }
 

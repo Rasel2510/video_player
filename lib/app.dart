@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
 import 'presentation/providers/theme_provider.dart';
+import 'presentation/widgets/thumbnail_widget.dart';
 import 'screens/home_screen.dart';
 
 class VideoPlayerApp extends ConsumerWidget {
@@ -11,14 +12,17 @@ class VideoPlayerApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeProvider);
-    
+
     return MaterialApp(
       title: 'Video Player',
       debugShowCheckedModeBanner: false,
       themeMode: themeMode,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      home: const HomeScreen(),
+      // FIX #OPT-8: ShimmerScope provides a single shared AnimationController
+      // to all VideoThumbnailWidget instances.  Without this wrapper every
+      // loading thumbnail would spin up its own controller.
+      home: const ShimmerScope(child: HomeScreen()),
     );
   }
 }

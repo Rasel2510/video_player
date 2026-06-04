@@ -23,10 +23,10 @@ class AutoPlayCountdown extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.82),
+          color: const Color(0xD1000000),
           borderRadius: BorderRadius.circular(14),
           border:
-              Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
+              Border.all(color: const Color(0x1EFFFFFF), width: 1),
         ),
         child: Row(
           children: [
@@ -40,7 +40,7 @@ class AutoPlayCountdown extends StatelessWidget {
                   CircularProgressIndicator(
                     value: countdown / 5.0,
                     strokeWidth: 2.5,
-                    valueColor: const AlwaysStoppedAnimation(Color(0xFF6C8EFF)),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6C8EFF)),
                     backgroundColor: Colors.white12,
                   ),
                   Text(
@@ -111,7 +111,7 @@ class AutoPlayCountdown extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.10),
+                  color: const Color(0x1AFFFFFF),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.close_rounded,

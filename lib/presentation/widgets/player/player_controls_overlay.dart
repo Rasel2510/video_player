@@ -13,6 +13,7 @@ const _kWhite12  = Color(0x1FFFFFFF);
 const _kBlack70  = Color(0xB3000000);
 const _kBlack40  = Color(0x66000000);
 const _kAccent   = Color(0xFF6C8EFF);
+const _kOrange   = Color(0xFFFF8C00);
 
 // ── Main overlay ──────────────────────────────────────────────────────────────
 
@@ -34,6 +35,7 @@ class PlayerControlsOverlay extends StatelessWidget {
   final VoidCallback onPlayNext;
   final VoidCallback onPlayPrevious;
   final VoidCallback onToggleLock;
+  final VoidCallback onToggleRepeat;
 
   const PlayerControlsOverlay({
     super.key,
@@ -54,19 +56,42 @@ class PlayerControlsOverlay extends StatelessWidget {
     required this.onPlayNext,
     required this.onPlayPrevious,
     required this.onToggleLock,
+    required this.onToggleRepeat,
   });
+
+  // FIX #OPT-12: Static const gradient widgets — these decorations never change
+  // so creating a new Container on every build() call is wasted allocation.
+  static const _kTopGradient = DecoratedBox(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xCC000000), Colors.transparent],
+      ),
+    ),
+  );
+
+  static const _kBottomGradient = DecoratedBox(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.bottomCenter,
+        end: Alignment.topCenter,
+        colors: [Color(0xCC000000), Colors.transparent],
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        Positioned(
-          top: 0, left: 0, right: 0, height: 160,
-          child: _buildGradient(Alignment.topCenter, Alignment.bottomCenter),
+        const Positioned(
+          top: 0, left: 0, right: 0, height: 180,
+          child: _kTopGradient,
         ),
-        Positioned(
+        const Positioned(
           bottom: 0, left: 0, right: 0, height: 200,
-          child: _buildGradient(Alignment.bottomCenter, Alignment.topCenter),
+          child: _kBottomGradient,
         ),
         SafeArea(
           child: Column(
@@ -79,6 +104,7 @@ class PlayerControlsOverlay extends StatelessWidget {
                 onShowAudio: onShowAudio,
                 onShowSubtitle: onShowSubtitle,
                 onToggleLock: onToggleLock,
+                onToggleRepeat: onToggleRepeat,
               ),
               const Spacer(),
               _CenterControls(
@@ -103,20 +129,13 @@ class PlayerControlsOverlay extends StatelessWidget {
     );
   }
 
-  Widget _buildGradient(Alignment begin, Alignment end) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: begin,
-          end: end,
-          colors: const [Color(0xCC000000), Colors.transparent],
-        ),
-      ),
-    );
-  }
+
 }
 
 // ── Top bar ───────────────────────────────────────────────────────────────────
+// Two rows — like the "=" sign:
+//   Row 1 : [←]  [title …]
+//   Row 2 : [🔒] [speed] [🔊] [🎵] [CC] [🔁]
 
 class _TopBar extends ConsumerWidget {
   final String fileName;
@@ -126,6 +145,7 @@ class _TopBar extends ConsumerWidget {
   final VoidCallback onShowAudio;
   final VoidCallback onShowSubtitle;
   final VoidCallback onToggleLock;
+  final VoidCallback onToggleRepeat;
 
   const _TopBar({
     required this.fileName,
@@ -135,81 +155,128 @@ class _TopBar extends ConsumerWidget {
     required this.onShowAudio,
     required this.onShowSubtitle,
     required this.onToggleLock,
+    required this.onToggleRepeat,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final speed   = ref.watch(playerProvider.select((s) => s.playbackSpeed));
-    final volume  = ref.watch(playerProvider.select((s) => s.volume));
-    final hasMultipleAudio = ref.watch(playerProvider.select(
-        (s) => s.audioTracks.where((t) => t.id != 'no' && t.id != 'auto').length > 1));
-    final hasSubtitles     = ref.watch(playerProvider.select((s) => s.subtitleTracks.isNotEmpty));
-    final subtitlesEnabled = ref.watch(playerProvider.select((s) => s.subtitlesEnabled));
+    // One combined select = one listener, one rebuild per change instead of six.
+    final (
+      :speed,
+      :volume,
+      :loopMode,
+      :hasMultipleAudio,
+      :hasSubtitles,
+      :subtitlesEnabled,
+    ) = ref.watch(playerProvider.select((s) => (
+          speed:            s.playbackSpeed,
+          volume:           s.volume,
+          loopMode:         s.loopMode,
+          hasMultipleAudio: s.audioTracks
+                  .where((t) => t.id != 'no' && t.id != 'auto')
+                  .length > 1,
+          hasSubtitles:     s.subtitleTracks.isNotEmpty,
+          subtitlesEnabled: s.subtitlesEnabled,
+        )));
 
+    // Avoid allocating a new string on every build when speed hasn't changed.
+    // The select above already prevents rebuild unless speed changes, so this
+    // is just defensive clarity.
     final speedLabel = speed == speed.roundToDouble()
         ? '${speed.toInt()}×'
         : '$speed×';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _GlassIconButton(
-            icon: Icons.arrow_back_ios_new_rounded,
-            size: 20,
-            onTap: onBack,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              fileName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: _kWhite100,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0.1,
+          // ── Row 1: back + title ──────────────────────────────────────────
+          Row(
+            children: [
+              _GlassIconButton(
+                icon: Icons.arrow_back_ios_new_rounded,
+                size: 20,
+                onTap: onBack,
               ),
-            ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  fileName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _kWhite100,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          // Lock gesture button
-          _GlassIconButton(
-            icon: Icons.lock_open_rounded,
-            size: 19,
-            onTap: onToggleLock,
-          ),
-          const SizedBox(width: 6),
-          _MiniChip(label: speedLabel, onTap: onShowSpeed),
-          const SizedBox(width: 6),
-          _GlassIconButton(
-            icon: volume == 0
-                ? Icons.volume_off_rounded
-                : volume < 50
-                    ? Icons.volume_down_rounded
-                    : Icons.volume_up_rounded,
-            size: 20,
-            onTap: onShowVolume,
-          ),
-          if (hasMultipleAudio) ...[
-            const SizedBox(width: 2),
-            _GlassIconButton(
-              icon: Icons.audiotrack_rounded,
-              size: 19,
-              onTap: onShowAudio,
-              active: true,
-            ),
-          ],
-          const SizedBox(width: 2),
-          _GlassIconButton(
-            icon: subtitlesEnabled && hasSubtitles
-                ? Icons.subtitles_rounded
-                : Icons.subtitles_off_outlined,
-            size: 19,
-            onTap: onShowSubtitle,
-            active: subtitlesEnabled && hasSubtitles,
-            dim: !hasSubtitles,
+
+          // ── Row 2: action buttons ────────────────────────────────────────
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              // Lock gesture
+              _GlassIconButton(
+                icon: Icons.lock_open_rounded,
+                size: 19,
+                onTap: onToggleLock,
+              ),
+              const SizedBox(width: 2),
+              // Playback speed
+              _MiniChip(label: speedLabel, onTap: onShowSpeed),
+              const SizedBox(width: 6),
+              // Volume
+              _GlassIconButton(
+                icon: volume == 0
+                    ? Icons.volume_off_rounded
+                    : volume < 50
+                        ? Icons.volume_down_rounded
+                        : Icons.volume_up_rounded,
+                size: 20,
+                onTap: onShowVolume,
+                // Orange tint when volume is boosted
+                boosted: volume > 100,
+              ),
+              // Audio track (only when multiple tracks exist)
+              if (hasMultipleAudio) ...[
+                const SizedBox(width: 2),
+                _GlassIconButton(
+                  icon: Icons.audiotrack_rounded,
+                  size: 19,
+                  onTap: onShowAudio,
+                  active: true,
+                ),
+              ],
+              const SizedBox(width: 2),
+              // Subtitle
+              _GlassIconButton(
+                icon: subtitlesEnabled && hasSubtitles
+                    ? Icons.subtitles_rounded
+                    : Icons.subtitles_off_outlined,
+                size: 19,
+                onTap: onShowSubtitle,
+                active: subtitlesEnabled && hasSubtitles,
+                dim: !hasSubtitles,
+              ),
+              const SizedBox(width: 2),
+              // Repeat / loop
+              _GlassIconButton(
+                icon: loopMode == LoopMode.loopOne
+                    ? Icons.repeat_one_rounded
+                    : Icons.repeat_rounded,
+                size: 19,
+                onTap: onToggleRepeat,
+                active: loopMode.isActive,
+                // Orange when loop-one, accent when loop-all
+                loopMode: loopMode,
+              ),
+            ],
           ),
         ],
       ),
@@ -236,9 +303,13 @@ class _CenterControls extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isPlaying   = ref.watch(playerProvider.select((s) => s.isPlaying));
-    final hasPrevious = ref.watch(playerProvider.select((s) => s.hasPrevious));
-    final hasNext     = ref.watch(playerProvider.select((s) => s.hasNext));
+    // Single combined select for all three booleans.
+    final (:isPlaying, :hasPrevious, :hasNext) =
+        ref.watch(playerProvider.select((s) => (
+              isPlaying:   s.isPlaying,
+              hasPrevious: s.hasPrevious,
+              hasNext:     s.hasNext,
+            )));
     final hasSiblings = hasPrevious || hasNext;
 
     return Row(
@@ -355,11 +426,16 @@ class _BottomBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final position     = ref.watch(playerProvider.select((s) => s.position));
-    final duration     = ref.watch(playerProvider.select((s) => s.duration));
-    final progress     = ref.watch(playerProvider.select((s) => s.progress));
-    final fitMode      = ref.watch(playerProvider.select((s) => s.fitMode));
-    final rotationMode = ref.watch(playerProvider.select((s) => s.rotationMode));
+    // One combined select — position updates every second so minimising
+    // listener count here meaningfully reduces per-second overhead.
+    final (:position, :duration, :progress, :fitMode, :rotationMode) =
+        ref.watch(playerProvider.select((s) => (
+              position:     s.position,
+              duration:     s.duration,
+              progress:     s.progress,
+              fitMode:      s.fitMode,
+              rotationMode: s.rotationMode,
+            )));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -461,14 +537,33 @@ class _GlassIconButton extends StatelessWidget {
   final VoidCallback onTap;
   final bool active;
   final bool dim;
+  final bool boosted;
+  final LoopMode? loopMode;
 
   const _GlassIconButton({
     required this.icon,
     required this.size,
     required this.onTap,
-    this.active = false,
-    this.dim    = false,
+    this.active   = false,
+    this.dim      = false,
+    this.boosted  = false,
+    this.loopMode,
   });
+
+  // Inlined as a getter so the expression is evaluated once per build,
+  // not allocated as a separate stack frame.
+  Color get _iconColor {
+    if (dim) { return _kWhite30; }
+    if (boosted) { return _kOrange; }
+    if (loopMode != null) {
+      return switch (loopMode!) {
+        LoopMode.none    => _kWhite100,
+        LoopMode.loopAll => _kAccent,
+        LoopMode.loopOne => _kOrange,
+      };
+    }
+    return active ? _kAccent : _kWhite100;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -477,15 +572,7 @@ class _GlassIconButton extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.all(8),
-        child: Icon(
-          icon,
-          size: size,
-          color: dim
-              ? _kWhite30
-              : active
-                  ? _kAccent
-                  : _kWhite100,
-        ),
+        child: Icon(icon, size: size, color: _iconColor),
       ),
     );
   }

@@ -1,3 +1,4 @@
+import '../core/utils/file_size_formatter.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 
@@ -16,15 +17,11 @@ class VideoFile {
     this.duration,
   });
 
-  String get extension => p.extension(name).toLowerCase();
-
-  String get sizeLabel {
-    if (size < 1024 * 1024) return '${(size / 1024).toStringAsFixed(1)} KB';
-    if (size < 1024 * 1024 * 1024) {
-      return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(size / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-  }
+  // Computed once on first access — p.extension() is called for every card in
+  // every list build without caching. late final pays the cost exactly once.
+  late final String extension      = p.extension(name).toLowerCase();
+  late final String extensionLabel = extension.replaceFirst('.', '').toUpperCase();
+  late final String sizeLabel      = FileSizeFormatter.format(size);
 
   // FIX #15: Added .rmvb, .flv, .divx, .vob, .ogv, .m2v, .mxf which are
   // common formats that were previously silently ignored during library scans.
