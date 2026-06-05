@@ -27,6 +27,7 @@ class SubtitleSheet extends StatelessWidget {
         maxHeight: MediaQuery.of(context).size.height * 0.75,
       ),
       child: Container(
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: context.colors.panel,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -180,7 +181,7 @@ class SubtitleSheet extends StatelessWidget {
 
             // ── Load external subtitle button ────────────────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.of(context).padding.bottom),
               child: SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(

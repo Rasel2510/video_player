@@ -25,42 +25,78 @@ class VideoOptionsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+    final bottomPad = MediaQuery.of(context).padding.bottom;
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: context.colors.panel,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Drag handle ──────────────────────────────────────────────────
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: context.colors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+
+          // ── File name ────────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
             child: Text(
               vf.name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: context.colors.textPrimary),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: context.colors.textPrimary,
+              ),
             ),
           ),
-          const SizedBox(height: 4),
+
           Divider(color: context.colors.divider),
-          const SizedBox(height: 4),
-          OptionRow(
-              icon: Icons.play_arrow_rounded, label: 'Play', onTap: onPlay),
-          OptionRow(icon: Icons.share_rounded, label: 'Share', onTap: onShare),
-          OptionRow(
-              icon: Icons.copy_rounded, label: 'Copy path', onTap: onCopyPath),
-          if (hasResume && onClearResume != null)
-            OptionRow(
-                icon: Icons.replay_rounded,
-                label: 'Clear resume position',
-                onTap: onClearResume!),
-          OptionRow(
-              icon: Icons.delete_outline_rounded,
-              label: 'Delete',
-              color: context.colors.errorRed,
-              onTap: onDelete),
+
+          // ── Actions ──────────────────────────────────────────────────────
+          Padding(
+            padding: EdgeInsets.fromLTRB(20, 4, 20, 16 + bottomPad),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                OptionRow(
+                    icon: Icons.play_arrow_rounded,
+                    label: 'Play',
+                    onTap: onPlay),
+                OptionRow(
+                    icon: Icons.share_rounded,
+                    label: 'Share',
+                    onTap: onShare),
+                OptionRow(
+                    icon: Icons.copy_rounded,
+                    label: 'Copy path',
+                    onTap: onCopyPath),
+                if (hasResume && onClearResume != null)
+                  OptionRow(
+                      icon: Icons.replay_rounded,
+                      label: 'Clear resume position',
+                      onTap: onClearResume!),
+                OptionRow(
+                    icon: Icons.delete_outline_rounded,
+                    label: 'Delete',
+                    color: context.colors.errorRed,
+                    onTap: onDelete),
+              ],
+            ),
+          ),
         ],
       ),
     );

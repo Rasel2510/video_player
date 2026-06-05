@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -49,26 +50,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _seekFlashRight = false;
 
   // ── Scale / pinch-to-zoom ──────────────────────────────────────────────────
-  // We handle all pointer gestures through onScale* so that single-finger
-  // vertical swipes (brightness / volume) and two-finger pinch share one
-  // recogniser without conflicting.
   double _baseZoomScale = 1.0;
   double _dragStartDx = 0;
   bool _swipeActive = false;
   bool _isPinching = false;
-  // FIX: after a pinch ends, ignore the stray single-finger events that fire
-  // as the second finger lifts — they would otherwise trigger a brightness/
-  // volume swipe unintentionally.
   bool _postPinchCooldown = false;
-  
   double _dragStartDy = 0;
   bool _swipeCommitted = false;
   bool _isSeekSwipe = false;
   double _seekStartProgress = 0;
 
-  // Convenience getter — ref.read(playerProvider.notifier) repeated in build()
-  // is equivalent each call (provider identity is stable), but a getter makes
-  // the intent clear and avoids typos.
   PlayerNotifier get _notifier => ref.read(playerProvider.notifier);
 
   @override
@@ -76,11 +67,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _notifier.init(
-            widget.filePath,
-            resumeFrom: widget.resumeFrom,
-            folderVideos: widget.folderVideos,
-            initialIndex: widget.initialIndex,
-          );
+        widget.filePath,
+        resumeFrom: widget.resumeFrom,
+        folderVideos: widget.folderVideos,
+        initialIndex: widget.initialIndex,
+      );
     });
   }
 
@@ -113,6 +104,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _showSpeedSheet(BuildContext ctx, double speed) => showModalBottomSheet(
         context: ctx,
         useSafeArea: true,
+        showDragHandle: false,
+        backgroundColor: Colors.transparent,
         builder: (_) => SpeedSheet(
           currentSpeed: speed,
           onSelect: (s) => _notifier.setSpeed(s),
@@ -123,6 +116,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       showModalBottomSheet(
         context: ctx,
         useSafeArea: true,
+        showDragHandle: false,
+        backgroundColor: Colors.transparent,
         builder: (_) => VolumeSheet(
           volume: volume,
           onChanged: (v) => _notifier.setVolume(v),
@@ -134,6 +129,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     showModalBottomSheet(
       context: ctx,
       useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
       builder: (_) => AudioTrackSheet(
         tracks: s.audioTracks,
         selectedTrack: s.selectedAudioTrack,
@@ -148,6 +145,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       context: ctx,
       useSafeArea: true,
       isScrollControlled: true,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
       builder: (_) => SubtitleSheet(
         tracks: s.subtitleTracks,
         selectedTrack: s.selectedSubtitleTrack,
@@ -159,7 +158,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   // ── Fit mode ───────────────────────────────────────────────────────────────
-  // Const map avoids a switch allocation on every video Consumer rebuild.
   static const _fitBoxMap = {
     FitMode.contain: BoxFit.contain,
     FitMode.cover:   BoxFit.cover,
@@ -182,9 +180,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         backgroundColor: Colors.black,
         body: Consumer(
           builder: (context, ref, child) {
-            // Single combined select — three separate selects would register
-            // three listeners; this registers one and only rebuilds when any
-            // of the three values actually change.
             final (:isLocked, :lockIconVisible, :controlsVisible) =
                 ref.watch(playerProvider.select((s) => (
                   isLocked: s.isLocked,
@@ -194,155 +189,176 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
             return Stack(
               children: [
-                // ── Main gesture layer (only active when NOT locked) ──────────
-                GestureDetector(
-                  onTap: () {
-                    if (!_swipeActive && !_isPinching) {
-                      controlsVisible
-                          ? _notifier.hideControls()
-                          : _notifier.showControls();
-                    }
-                  },
-                  onDoubleTapDown: (details) {
-                    if (isLocked) return;
-                    final isLeft = details.globalPosition.dx < size.width / 2;
-                    if (isLeft) {
-                      _notifier.seekRelative(-10);
-                    } else {
-                      _notifier.seekRelative(10);
-                    }
-                    _triggerSeekFlash(isLeft);
-                  },
-                  onScaleStart: (details) {
-                    if (isLocked) return;
-                    if (details.pointerCount >= 2) {
-                      _isPinching = true;
-                      _swipeActive = false;
-                      _postPinchCooldown = false;
-                      _baseZoomScale = ref.read(playerProvider).zoomScale;
-                    } else {
-                      if (_postPinchCooldown) return;
-                      _isPinching = false;
-                      _dragStartDx = details.localFocalPoint.dx;
-                      _dragStartDy = details.localFocalPoint.dy;
-                      _swipeActive = true;
-                      _swipeCommitted = false;
-                      _isSeekSwipe = false;
-                    }
-                  },
-                  onScaleUpdate: (details) {
-                    if (isLocked) return;
-                    if (_isPinching || details.pointerCount >= 2) {
-                      _isPinching = true;
-                      _swipeActive = false;
-                      if (details.pointerCount >= 2) {
-                        _notifier.setZoomScale(_baseZoomScale * details.scale);
+                // ── Main gesture layer — BOTTOM of stack so control buttons ──
+                // on top can receive their taps unobstructed. translucent lets
+                // hit-tests fall through to widgets beneath when nothing here
+                // consumes the event. Disabled via IgnorePointer when locked.
+                IgnorePointer(
+                  ignoring: isLocked,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: () {
+                      if (!_swipeActive && !_isPinching) {
+                        controlsVisible
+                            ? _notifier.hideControls()
+                            : _notifier.showControls();
                       }
-                    } else if (_swipeActive && !_postPinchCooldown) {
-                      if (!_swipeCommitted) {
-                        final dx = details.localFocalPoint.dx - _dragStartDx;
-                        final dy = details.localFocalPoint.dy - _dragStartDy;
-                        if (dx.abs() > 15 || dy.abs() > 15) {
-                          _swipeCommitted = true;
-                          if (dx.abs() > dy.abs()) {
-                            _isSeekSwipe = true;
-                            _seekStartProgress = ref.read(playerProvider).progress;
-                            _notifier.beginSeek(_seekStartProgress);
-                            _notifier.showControls();
+                    },
+                    onDoubleTapDown: (details) {
+                      final isLeft = details.globalPosition.dx < size.width / 2;
+                      if (isLeft) {
+                        _notifier.seekRelative(-10);
+                      } else {
+                        _notifier.seekRelative(10);
+                      }
+                      _triggerSeekFlash(isLeft);
+                    },
+                    onScaleStart: (details) {
+                      if (details.pointerCount >= 2) {
+                        _isPinching = true;
+                        _swipeActive = false;
+                        _postPinchCooldown = false;
+                        _baseZoomScale = ref.read(playerProvider).zoomScale;
+                      } else {
+                        if (_postPinchCooldown) return;
+                        _isPinching = false;
+                        _dragStartDx = details.localFocalPoint.dx;
+                        _dragStartDy = details.localFocalPoint.dy;
+                        _swipeActive = true;
+                        _swipeCommitted = false;
+                        _isSeekSwipe = false;
+                      }
+                    },
+                    onScaleUpdate: (details) {
+                      if (_isPinching || details.pointerCount >= 2) {
+                        _isPinching = true;
+                        _swipeActive = false;
+                        if (details.pointerCount >= 2) {
+                          _notifier.setZoomScale(_baseZoomScale * details.scale);
+                        }
+                      } else if (_swipeActive && !_postPinchCooldown) {
+                        if (!_swipeCommitted) {
+                          final dx = details.localFocalPoint.dx - _dragStartDx;
+                          final dy = details.localFocalPoint.dy - _dragStartDy;
+                          if (dx.abs() > 15 || dy.abs() > 15) {
+                            _swipeCommitted = true;
+                            if (dx.abs() > dy.abs()) {
+                              _isSeekSwipe = true;
+                              _seekStartProgress = ref.read(playerProvider).progress;
+                              _notifier.beginSeek(_seekStartProgress);
+                              _notifier.showControls();
+                            } else {
+                              _isSeekSwipe = false;
+                              _notifier.startSwipe(_dragStartDx, size.width);
+                            }
                           } else {
-                            _isSeekSwipe = false;
-                            _notifier.startSwipe(_dragStartDx, size.width);
+                            return;
+                          }
+                        }
+                        if (_isSeekSwipe) {
+                          final durationMs =
+                              ref.read(playerProvider).duration.inMilliseconds;
+                          if (durationMs > 0) {
+                            final deltaMs =
+                                (details.localFocalPoint.dx - _dragStartDx) * 300;
+                            final seekStartMs = _seekStartProgress * durationMs;
+                            final newMs = (seekStartMs + deltaMs)
+                                .clamp(0.0, durationMs.toDouble());
+                            _notifier.updateSeek(newMs / durationMs);
                           }
                         } else {
-                          return;
+                          _notifier.updateSwipe(
+                              details.focalPointDelta.dy, size.height);
                         }
                       }
-                      if (_isSeekSwipe) {
-                        final durationMs =
-                            ref.read(playerProvider).duration.inMilliseconds;
-                        if (durationMs > 0) {
-                          final deltaMs =
-                              (details.localFocalPoint.dx - _dragStartDx) * 300;
-                          final seekStartMs = _seekStartProgress * durationMs;
-                          final newMs = (seekStartMs + deltaMs)
-                              .clamp(0.0, durationMs.toDouble());
-                          _notifier.updateSeek(newMs / durationMs);
-                        }
-                      } else {
-                        _notifier.updateSwipe(
-                            details.focalPointDelta.dy, size.height);
-                      }
-                    }
-                  },
-                  onScaleEnd: (_) {
-                    if (isLocked) return;
-                    if (_isPinching) {
-                      _isPinching = false;
-                      _postPinchCooldown = true;
-                      Future.delayed(
-                        const Duration(milliseconds: 150),
-                        () => _postPinchCooldown = false,
-                      );
-                    } else if (_swipeActive) {
-                      _swipeActive = false;
-                      if (_swipeCommitted) {
-                        if (_isSeekSwipe) {
-                          _notifier.endSeek(
-                              ref.read(playerProvider).seekValue);
-                        } else {
-                          _notifier.endSwipe();
+                    },
+                    onScaleEnd: (_) {
+                      if (_isPinching) {
+                        _isPinching = false;
+                        _postPinchCooldown = true;
+                        Future.delayed(
+                          const Duration(milliseconds: 150),
+                          () => _postPinchCooldown = false,
+                        );
+                      } else if (_swipeActive) {
+                        _swipeActive = false;
+                        if (_swipeCommitted) {
+                          if (_isSeekSwipe) {
+                            _notifier.endSeek(ref.read(playerProvider).seekValue);
+                          } else {
+                            _notifier.endSwipe();
+                          }
                         }
                       }
-                    }
-                  },
-                  child: child,
-                ),
-
-                // ── Lock touch-absorber — always in tree, active only when locked ──
-                //
-                // ROOT CAUSE OF WHITE FLASH: using `if (isLocked)` here adds/
-                // removes widgets from the Stack on every lock toggle. Flutter
-                // must re-composite the platform Video view when its sibling
-                // list changes, which produces a single white frame.
-                //
-                // FIX: keep this widget permanently in the tree. Use
-                // IgnorePointer to toggle touch-absorption instead of
-                // conditional existence. The Video platform view never sees a
-                // sibling-list mutation, so no re-composition occurs.
-                Positioned.fill(
-                  child: IgnorePointer(
-                    ignoring: !isLocked,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: _notifier.showLockIcon,
-                      onScaleStart: (_) {},
-                      onScaleUpdate: (_) {},
-                      onScaleEnd: (_) {},
-                      child: const SizedBox.expand(),
-                    ),
+                    },
+                    child: const SizedBox.expand(),
                   ),
                 ),
 
-                // ── Lock icon — always in tree, fades in/out ─────────────────
-                // Never removed from the Stack: opacity 0.0 when unlocked,
-                // fades to 1.0 when locked+icon visible. Duration.zero on
-                // hide to avoid a lingering translucent frame.
+                // ── Video + controls + non-lock overlays ─────────────────────
+                // Sits above the gesture layer so buttons receive taps first.
+                child!,
+
+                // ── Seek flash overlays ──────────────────────────────────────
+                if (_seekFlashLeft)
+                  Positioned(
+                    left: 0, top: 0, bottom: 0,
+                    width: size.width / 2,
+                    child: SeekFlash(animation: _seekFlashAnim, isForward: false),
+                  ),
+                if (_seekFlashRight)
+                  Positioned(
+                    right: 0, top: 0, bottom: 0,
+                    width: size.width / 2,
+                    child: SeekFlash(animation: _seekFlashAnim, isForward: true),
+                  ),
+
+                // ── Lock touch-absorber — always present, opaque when locked ──
+                // Sits above the gesture layer. When locked, absorbs all touches
+                // and shows the lock icon on tap. When unlocked, lets touches
+                // pass through to the gesture layer above (in hit-test order).
+                // Never added/removed — IgnorePointer toggles it — so the Video
+                // platform view is never re-composited.
+                IgnorePointer(
+                  ignoring: !isLocked,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _notifier.showLockIcon,
+                    // Absorb all scale events so no gesture leaks through.
+                    onScaleStart: (_) {},
+                    onScaleUpdate: (_) {},
+                    onScaleEnd: (_) {},
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+
+                // ── Lock icon overlay — always present, fades in/out ─────────
+                // AnimatedOpacity keeps the same widget type at all times so
+                // Flutter never tears down and rebuilds this subtree, which
+                // would re-composite the Video platform view beneath it.
+                // Duration.zero when hiding = instant disappear, no flash.
                 AnimatedOpacity(
-                  opacity: isLocked && lockIconVisible ? 1.0 : 0.0,
+                  opacity: (isLocked && lockIconVisible) ? 1.0 : 0.0,
                   duration: (isLocked && lockIconVisible)
-                      ? const Duration(milliseconds: 250)
+                      ? const Duration(milliseconds: 200)
                       : Duration.zero,
                   child: IgnorePointer(
+                    // Only hittable when fully visible and locked.
                     ignoring: !(isLocked && lockIconVisible),
-                    child: LockOverlay(onUnlock: _notifier.toggleLock),
+                    child: LockOverlay(
+                      onUnlock: _notifier.toggleLock,
+                    ),
                   ),
                 ),
               ],
             );
           },
+          // ── child — Video + non-lock overlays, rebuilt only by their own ──
+          // state. Passed as the Consumer `child` argument so it is created
+          // once and reused across Consumer rebuilds triggered by lock state.
           child: Stack(
             children: [
-              // ── Video ──────────────────────────────────────────────────
+              // ── Video ────────────────────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
                   final (:isInitialized, :fitMode, :zoomScale, :hasError, errorMsg: errorMsg) =
@@ -358,8 +374,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     return ErrorState(
                       message: errorMsg,
                       onRetry: () {
-                        // FIX #OPT-1: .let() is a Kotlin idiom; Dart has no such
-                        // built-in extension. Use a plain block instead.
                         final n = ref.read(playerProvider.notifier);
                         final s = ref.read(playerProvider);
                         n.init(
@@ -373,14 +387,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   }
 
                   if (!isInitialized ||
-                      ref.read(playerProvider.notifier).videoController ==
-                          null) {
+                      ref.read(playerProvider.notifier).videoController == null) {
                     return const Center(child: CircularProgressIndicator());
                   }
 
                   return Positioned.fill(
-                    // FIX #OPT-11: Transform.scale at 1.0 still composites an
-                    // extra layer. Skip the wrapper entirely when not zoomed.
                     child: zoomScale == 1.0
                         ? Video(
                             controller: ref
@@ -403,26 +414,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 },
               ),
 
-              // ── Seek flash overlays ────────────────────────────────────
-              if (_seekFlashLeft)
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: MediaQuery.of(context).size.width / 2,
-                  child:
-                      SeekFlash(animation: _seekFlashAnim, isForward: false),
-                ),
-              if (_seekFlashRight)
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: MediaQuery.of(context).size.width / 2,
-                  child: SeekFlash(animation: _seekFlashAnim, isForward: true),
-                ),
-
-              // ── Swipe HUD ──────────────────────────────────────────────
+              // ── Swipe HUD ────────────────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
                   final (:gesture, :value) =
@@ -435,7 +427,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 },
               ),
 
-              // ── Auto-play countdown ────────────────────────────────────
+              // ── Auto-play countdown ──────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
                   final (:countdown, :nextVideo) =
@@ -455,7 +447,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 },
               ),
 
-              // ── Zoom indicator — tap to reset ──────────────────────────
+              // ── Zoom indicator — tap to reset ────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
                   final zoom =
@@ -476,8 +468,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                             color: const Color(0xA6000000),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                                color: const Color(0x33FFFFFF),
-                                width: 1),
+                                color: const Color(0x33FFFFFF), width: 1),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -506,7 +497,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 },
               ),
 
-              // ── Controls overlay ───────────────────────────────────────
+              // ── Controls overlay ─────────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
                   final (:isInitialized, :hasError, :isLocked,
@@ -522,23 +513,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   final displayName = currentVideo?.name ?? widget.fileName;
                   final notifier = ref.read(playerProvider.notifier);
 
-                  // Keep controls in the widget tree when hidden (opacity=0)
-                  // so Flutter never tears down the platform-view compositor layer.
-                  //
-                  // IMPORTANT: always use the SAME widget type (AnimatedOpacity)
-                  // regardless of visibility. Switching between AnimatedOpacity
-                  // and Opacity causes Flutter to rebuild the subtree, which
-                  // triggers a white compositor-layer flash over the video
-                  // platform view in release builds — the exact "white screen"
-                  // seen when tapping the lock icon.
-                  //
-                  // Using Duration.zero when hiding gives an instant hide
-                  // without any intermediate saveLayer, while keeping the widget
-                  // type stable avoids the destructive rebuild entirely.
                   final visible = controlsVisible && !isLocked;
-                  final child = IgnorePointer(
-                    ignoring: !visible,
-                    child: PlayerControlsOverlay(
+                  return AnimatedOpacity(
+                    opacity: visible ? 1.0 : 0.0,
+                    duration: visible
+                        ? const Duration(milliseconds: 200)
+                        : Duration.zero,
+                    child: IgnorePointer(
+                      ignoring: !visible,
+                      child: PlayerControlsOverlay(
                         fileName: displayName,
                         onBack: () => Navigator.pop(context),
                         onTogglePlay: notifier.togglePlay,
@@ -560,15 +543,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         onToggleLock: notifier.toggleLock,
                         onToggleRepeat: notifier.cycleLoopMode,
                       ),
-                    );
-                  return AnimatedOpacity(
-                    opacity: visible ? 1.0 : 0.0,
-                    // Fade-in when showing; instant (0 ms) when hiding so there
-                    // is no intermediate compositor layer to flash white.
-                    duration: visible
-                        ? const Duration(milliseconds: 200)
-                        : Duration.zero,
-                    child: child,
+                    ),
                   );
                 },
               ),
@@ -579,4 +554,3 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 }
-
