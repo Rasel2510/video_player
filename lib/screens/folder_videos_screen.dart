@@ -81,7 +81,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
         PositionService.instance.load(vf.path),
         DurationCacheService.instance.getDuration(vf.path),
       ]);
-      return (vf.path, results[0] ?? Duration.zero, results[1] as Duration?);
+      return (vf.path, results[0] ?? Duration.zero, results[1]);
     });
     final results = await Future.wait(futures);
     if (!mounted) return;

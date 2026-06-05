@@ -189,27 +189,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
             return Stack(
               children: [
-                // ── Video + all non-lock overlays (never re-built by lock) ──
-                child!,
-
-                // ── Seek flash overlays ──────────────────────────────────────
-                if (_seekFlashLeft)
-                  Positioned(
-                    left: 0, top: 0, bottom: 0,
-                    width: size.width / 2,
-                    child: SeekFlash(animation: _seekFlashAnim, isForward: false),
-                  ),
-                if (_seekFlashRight)
-                  Positioned(
-                    right: 0, top: 0, bottom: 0,
-                    width: size.width / 2,
-                    child: SeekFlash(animation: _seekFlashAnim, isForward: true),
-                  ),
-
-                // ── Main gesture layer — disabled when locked ────────────────
-                // Always present in the Stack so sibling indices never shift.
-                // IgnorePointer disables it instead of removing it, which
-                // prevents the Video platform view from being re-composited.
+                // ── Main gesture layer — BOTTOM of stack so control buttons ──
+                // on top can receive their taps unobstructed. translucent lets
+                // hit-tests fall through to widgets beneath when nothing here
+                // consumes the event. Disabled via IgnorePointer when locked.
                 IgnorePointer(
                   ignoring: isLocked,
                   child: GestureDetector(
@@ -311,6 +294,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     child: const SizedBox.expand(),
                   ),
                 ),
+
+                // ── Video + controls + non-lock overlays ─────────────────────
+                // Sits above the gesture layer so buttons receive taps first.
+                child!,
+
+                // ── Seek flash overlays ──────────────────────────────────────
+                if (_seekFlashLeft)
+                  Positioned(
+                    left: 0, top: 0, bottom: 0,
+                    width: size.width / 2,
+                    child: SeekFlash(animation: _seekFlashAnim, isForward: false),
+                  ),
+                if (_seekFlashRight)
+                  Positioned(
+                    right: 0, top: 0, bottom: 0,
+                    width: size.width / 2,
+                    child: SeekFlash(animation: _seekFlashAnim, isForward: true),
+                  ),
 
                 // ── Lock touch-absorber — always present, opaque when locked ──
                 // Sits above the gesture layer. When locked, absorbs all touches
