@@ -366,16 +366,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 // FadeTransition + AnimationController never touches provider
                 // state, so no Consumer rebuilds, no platform-view re-composite,
                 // no white flash when the icon appears/disappears.
-                FadeTransition(
-                  opacity: _lockIconCtrl,
-                  child: IgnorePointer(
-                    // Pass taps through when not visible (controller value == 0)
-                    ignoring: !isLocked,
-                    child: LockOverlay(
-                      onUnlock: () {
-                        _hideLockIconLocal();
-                        _notifier.toggleLock();
-                      },
+                Positioned.fill(
+                  child: FadeTransition(
+                    opacity: _lockIconCtrl,
+                    child: AnimatedBuilder(
+                      animation: _lockIconCtrl,
+                      builder: (context, child) => IgnorePointer(
+                        // Pass taps through when hidden so the touch-absorber
+                        // can show the icon on the next tap.
+                        ignoring: !isLocked || _lockIconCtrl.value == 0,
+                        child: child,
+                      ),
+                      child: LockOverlay(
+                        onUnlock: () {
+                          _hideLockIconLocal();
+                          _notifier.toggleLock();
+                        },
+                      ),
                     ),
                   ),
                 ),
