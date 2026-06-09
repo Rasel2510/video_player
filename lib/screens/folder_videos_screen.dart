@@ -74,24 +74,43 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   }
 
   Future<void> _loadPositions() async {
-    final futures = widget.folder.videos.map((vf) async {
-      // Load position and duration in parallel per video — they are
-      // independent SharedPreferences reads with no ordering dependency.
-      final results = await Future.wait([
-        PositionService.instance.load(vf.path),
-        DurationCacheService.instance.getDuration(vf.path),
-      ]);
-      return (vf.path, results[0] ?? Duration.zero, results[1]);
-    });
-    final results = await Future.wait(futures);
+    final paths = widget.folder.videos.map((v) => v.path).toList();
+
+    // ── Phase 1: instant cache read ───────────────────────────────────────
+    // loadCachedDurations does a single SharedPreferences.getInstance() then
+    // reads all keys synchronously — typically completes in < 5 ms.
+    // Positions are also pure prefs reads so we run both in parallel.
+    final results = await Future.wait([
+      DurationCacheService.instance.loadCachedDurations(paths),
+      Future.wait(paths.map((path) async {
+        final pos = await PositionService.instance.load(path);
+        return (path, pos ?? Duration.zero);
+      })),
+    ]);
+
     if (!mounted) return;
     setState(() {
-      for (final (path, pos, dur) in results) {
+      final cachedDurs = results[0] as Map<String, Duration>;
+      final posList = results[1] as List<(String, Duration)>;
+      _durations.addAll(cachedDurs);
+      for (final (path, pos) in posList) {
         _positions[path] = pos;
-        if (dur != null) _durations[path] = dur;
       }
       _positionsLoaded = true;
     });
+
+    // ── Phase 2: background probe for uncached durations ──────────────────
+    // Only runs for videos whose duration wasn't in the cache above.
+    // Does not block the UI — results trickle in individually.
+    final uncached = paths.where((path) => !_durations.containsKey(path)).toList();
+    if (uncached.isEmpty) return;
+
+    for (final path in uncached) {
+      DurationCacheService.instance.getDuration(path).then((dur) {
+        if (!mounted || dur == null) return;
+        setState(() => _durations[path] = dur);
+      });
+    }
   }
 
   // ── Sorted + filtered video list ──────────────────────────────────────────

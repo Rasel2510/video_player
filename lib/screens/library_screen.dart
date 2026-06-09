@@ -98,7 +98,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (!mounted) return;
     if (results.any((g) => g) && !_permissionGranted) {
       setState(() => _permissionGranted = true);
-      ref.read(foldersProvider.notifier).load(forceScan: false);
+      // FIX #PERM-SCAN: forceScan=true — user just granted storage permission
+      // so there is no valid cache yet. Scan immediately instead of waiting
+      // for the background snapshot check to figure that out.
+      ref.read(foldersProvider.notifier).load(forceScan: true);
     }
   }
 

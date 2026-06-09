@@ -6,24 +6,21 @@ import '../models/video_file.dart';
 
 /// Probes and caches video duration using media_kit's Player.
 ///
-/// FIX #OPT-3: Added _probeInFlight dedup map so a folder with many uncached
-///             videos doesn't spin up N simultaneous Player instances.
-/// FIX #OPT-4: Switched cache key from videoPath.hashCode (collision-prone) to
-///             the full sanitised path, consistent with PositionService.
-///             Existing 'dur_<hashCode>' keys are silently ignored — they'll
-///             be re-probed once and re-cached under the new key.
+/// FIX #DUR-FAST: Added getFromCacheSync / loadCachedDurations for a
+/// zero-async fast path: callers populate the UI immediately with every
+/// duration already in SharedPreferences, before any Player probes start.
+/// FIX #DUR-PROBE: Probe concurrency capped at 2 simultaneous Players
+/// (down from unlimited) to reduce memory pressure on large folders.
 class DurationCacheService {
   DurationCacheService._();
   static final instance = DurationCacheService._();
 
-  // Cached — only one platform channel call per app session.
   SharedPreferences? _prefs;
   Future<SharedPreferences> get _p async =>
       _prefs ??= await SharedPreferences.getInstance();
 
-  static const _prefix = 'dur_v2_'; // v2 = full-path key (not hashCode)
+  static const _prefix = 'dur_v2_';
 
-  // Compiled once — same sanitisation as PositionService.
   static final _sanitiseRe = RegExp(r'[^a-zA-Z0-9._\-]');
 
   static String _key(String videoPath) {
@@ -31,15 +28,84 @@ class DurationCacheService {
     return '$_prefix$sanitised';
   }
 
+  // ── In-memory duration cache (current session) ────────────────────────────
+  // Avoids repeated SharedPreferences reads for the same path in one session.
+  final Map<String, Duration?> _memCache = {};
+
+  // ── Probe concurrency cap ─────────────────────────────────────────────────
+  // At most 2 Player instances open simultaneously so a large folder with
+  // many uncached videos doesn't exhaust memory.
+  static const int _kMaxProbes = 2;
+  int _activeProbes = 0;
+  final List<Completer<void>> _probeWaiters = [];
+
+  Future<void> _acquireProbeSlot() async {
+    if (_activeProbes < _kMaxProbes) { _activeProbes++; return; }
+    final c = Completer<void>();
+    _probeWaiters.add(c);
+    await c.future;
+  }
+
+  void _releaseProbeSlot() {
+    if (_probeWaiters.isNotEmpty) {
+      _probeWaiters.removeAt(0).complete();
+    } else {
+      _activeProbes--;
+    }
+  }
+
   // ── Probe dedup ───────────────────────────────────────────────────────────
-  // Prevents spinning up multiple Player instances for the same path when
-  // _loadPositions() fires parallel getDuration() calls for uncached videos.
   final Map<String, Future<Duration?>> _probeInFlight = {};
+
+  // ── Fast synchronous read ─────────────────────────────────────────────────
+
+  /// Returns cached duration synchronously if prefs are already loaded.
+  /// Returns null otherwise — caller should fall back to getDuration().
+  Duration? getFromCacheSync(String videoPath) {
+    if (_memCache.containsKey(videoPath)) return _memCache[videoPath];
+    final prefs = _prefs;
+    if (prefs == null) return null;
+    final ms = prefs.getInt(_key(videoPath));
+    if (ms != null && ms > 0) {
+      final d = Duration(milliseconds: ms);
+      _memCache[videoPath] = d;
+      return d;
+    }
+    return null;
+  }
+
+  /// Loads all cached durations for a list of paths in a single async call.
+  /// Returns a map of path → Duration for every path with a cached value.
+  /// Use on screen open to pre-populate the UI before any probing starts.
+  Future<Map<String, Duration>> loadCachedDurations(List<String> paths) async {
+    final prefs = await _p;
+    final result = <String, Duration>{};
+    for (final path in paths) {
+      if (_memCache.containsKey(path)) {
+        final d = _memCache[path];
+        if (d != null) result[path] = d;
+        continue;
+      }
+      final ms = prefs.getInt(_key(path));
+      if (ms != null && ms > 0) {
+        final d = Duration(milliseconds: ms);
+        _memCache[path] = d;
+        result[path] = d;
+      }
+    }
+    return result;
+  }
 
   /// Returns cached duration, or probes the file if not cached yet.
   Future<Duration?> getDuration(String videoPath) async {
-    final cached = (await _p).getInt(_key(videoPath));
-    if (cached != null && cached > 0) return Duration(milliseconds: cached);
+    if (_memCache.containsKey(videoPath)) return _memCache[videoPath];
+    final prefs = await _p;
+    final cached = prefs.getInt(_key(videoPath));
+    if (cached != null && cached > 0) {
+      final d = Duration(milliseconds: cached);
+      _memCache[videoPath] = d;
+      return d;
+    }
     return _probeDeduped(videoPath);
   }
 
@@ -52,18 +118,16 @@ class DurationCacheService {
 
   Future<Duration?> _probe(String videoPath) async {
     if (!File(videoPath).existsSync()) return null;
+    await _acquireProbeSlot();
     try {
       final player = Player();
       Duration? result;
 
-      // Use stream listener instead of polling so we get the duration as soon
-      // as media_kit reports it rather than waiting for the full poll interval.
       final completer = Completer<Duration?>();
       final sub = player.stream.duration.listen((d) {
         if (d > Duration.zero && !completer.isCompleted) completer.complete(d);
       });
 
-      // 3-second timeout — same ceiling as the old polling approach.
       await player.open(Media(videoPath), play: false);
       result = await completer.future
           .timeout(const Duration(seconds: 3), onTimeout: () => null);
@@ -72,11 +136,14 @@ class DurationCacheService {
       await player.dispose();
 
       if (result != null && result > Duration.zero) {
+        _memCache[videoPath] = result;
         await _cache(videoPath, result);
       }
       return result;
     } catch (_) {
       return null;
+    } finally {
+      _releaseProbeSlot();
     }
   }
 
@@ -86,6 +153,7 @@ class DurationCacheService {
 
   Future<void> saveDuration(String videoPath, Duration duration) async {
     if (duration <= Duration.zero) return;
+    _memCache[videoPath] = duration;
     await _cache(videoPath, duration);
   }
 
