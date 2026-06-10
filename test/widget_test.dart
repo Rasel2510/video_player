@@ -5,6 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 void main() {
   testWidgets('App loads smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(const ProviderScope(child: VideoPlayerApp()));
-    expect(find.text('VIDEO PLAYER'), findsOneWidget);
+    expect(find.text('Videos'), findsOneWidget);
   });
 }
