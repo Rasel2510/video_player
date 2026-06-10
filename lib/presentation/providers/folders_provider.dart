@@ -48,7 +48,6 @@ const _cacheTimeKey = 'folder_scan_time_v2';
 
 // FIX #TTL: Removed 12-hour TTL — cache is now permanent and only replaced
 // when a real filesystem change is detected by the background snapshot check.
-// Previously the cache expired after 12 h and the app showed a blank library.
 
 const _snapshotKey      = 'folder_scan_snapshot_v2';
 const _seenPathsKey     = 'folder_scan_seen_paths_v1';
@@ -70,6 +69,9 @@ Future<Set<String>?> _loadSeenPaths() async {
 Future<void> _saveSeenPaths(Set<String> paths) async {
   try {
     final prefs = await _p;
+    // FIX #3: Write the init flag FIRST. If the app is killed between the two
+    // writes, next open reads an empty seenPaths (safe) rather than treating
+    // the library as uninitialised and badging every video as new.
     await prefs.setBool(_seenPathsInitKey, true);
     await prefs.setString(_seenPathsKey, jsonEncode(paths.toList()));
   } catch (_) {}
@@ -88,8 +90,7 @@ Future<List<VideoFolder>?> _loadCache() async {
   }
 }
 
-// FIX #ATOMIC: cache and snapshot are always written together so they can
-// never go out of sync (e.g. if the app is killed between the two writes).
+// FIX #ATOMIC: cache and snapshot are always written together.
 Future<void> _saveCache(List<VideoFolder> folders) async {
   try {
     final prefs = await _p;
@@ -171,6 +172,12 @@ void _quickScanSync(Directory dir, Map<String, int> snapshot) {
   } catch (_) {}
 }
 
+// ── FIX #4: Prune stale paths ─────────────────────────────────────────────────
+// seenPaths only ever grows — deleted videos leave their paths in storage
+// forever. Intersect with the current scan result to keep the JSON lean.
+Set<String> _pruneSeenPaths(Set<String> seen, Set<String> allCurrentPaths) =>
+    seen.intersection(allCurrentPaths);
+
 Map<String, dynamic> _folderToMap(VideoFolder f) => {
       'path': f.path,
       'videos': f.videos.map((v) => {
@@ -250,8 +257,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
     if (state.folders.isEmpty) {
       final cached = await _loadCache();
       if (cached != null && cached.isNotEmpty) {
-        // FIX #SDCARD: Filter out folders whose storage root no longer exists
-        // (e.g. SD card removed). Checked by path prefix — instant, no fs walk.
+        // FIX #SDCARD: Filter out folders whose storage root no longer exists.
         final validFolders = cached.where((f) {
           return roots.any((root) => f.path.startsWith(root));
         }).toList();
@@ -273,9 +279,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
 
   Future<void> _backgroundCheck(List<String> roots) async {
     final changed = await _hasNewContent();
-    if (changed) {
-      await _fullScan(roots);
-    }
+    if (changed) await _fullScan(roots);
   }
 
   Future<void> _fullScan(List<String> roots) async {
@@ -286,6 +290,17 @@ class FoldersNotifier extends Notifier<FoldersState> {
       fromCache: false,
       storageRoots: roots,
     );
+
+    // FIX #2: Capture which paths are CURRENTLY showing as new in the UI
+    // before the scan starts. markSeen() removes a path from state.newPaths
+    // immediately (in memory) but _persistSeenRemoval() is async — the path
+    // may not be in seenPaths on disk yet when _loadSeenPaths() runs below.
+    // Any path absent from preScanNewPaths but absent from the new state.newPaths
+    // was dismissed by the user during this session and must NOT be re-badged.
+    // We handle this by checking: if a path was NOT in preScanNewPaths and is
+    // also NOT in seenPaths on disk, it means markSeen() cleared it in-memory
+    // already — so we treat it as seen for this scan pass.
+    final preScanNewPaths = Set<String>.from(state.newPaths);
 
     final Map<String, List<VideoFile>> folderMap = {};
     int progress = 0;
@@ -302,12 +317,12 @@ class FoldersNotifier extends Notifier<FoldersState> {
         folderMap.putIfAbsent(f.path, () => []).addAll(f.videos);
       }
 
-      // FIX #SCAN-KILL: Save partial cache after each root completes.
-      // If the app is killed mid-scan (OOM etc.), next open loads this
-      // partial result instead of showing a blank library.
+      // FIX #SCAN-KILL: Save partial cache after each root so a mid-scan kill
+      // doesn't leave the user with a blank library on next open.
       if (folderMap.isNotEmpty) {
-        final partial = folderMap.entries.map((e) =>
-            VideoFolder(path: e.key, videos: e.value)).toList();
+        final partial = folderMap.entries
+            .map((e) => VideoFolder(path: e.key, videos: e.value))
+            .toList();
         _saveCache(partial).ignore();
       }
     }
@@ -322,21 +337,56 @@ class FoldersNotifier extends Notifier<FoldersState> {
     merged.sort((a, b) => fkeys[a]!.compareTo(fkeys[b]!));
 
     final seenPaths = await _loadSeenPaths();
-    final Set<String> newPaths  = {};
-    final Set<String> allPaths  = {};
+
+    // FIX #4: Build current path set and prune stale entries from seenPaths.
+    final Set<String> allCurrentPaths = {};
+    for (final folder in merged) {
+      allCurrentPaths.add(folder.path);
+      for (final video in folder.videos) {
+        allCurrentPaths.add(video.path);
+      }
+    }
+    final Set<String> alreadySeenPaths = seenPaths != null
+        ? _pruneSeenPaths(seenPaths, allCurrentPaths)
+        : {};
+
+    final Set<String> newPaths = {};
 
     for (final folder in merged) {
-      allPaths.add(folder.path);
-      if (seenPaths != null && seenPaths.isNotEmpty &&
-          !seenPaths.contains(folder.path)) {
+      // A path is considered new when ALL of these are true:
+      //   1. seenPaths is initialised (null = first install → no badges)
+      //   2. seenPaths is not empty (empty first scan → no badges)
+      //   3. path is not in seenPaths on disk
+      //   4. FIX #2: path was in preScanNewPaths OR is not already dismissed
+      //      in-session. If it was in preScanNewPaths it is genuinely still
+      //      new. If it was NOT in preScanNewPaths it means markSeen() already
+      //      removed it before this scan — don't re-badge it.
+      final bool initialised = seenPaths != null && seenPaths.isNotEmpty;
+
+      final folderOnDisk = seenPaths?.contains(folder.path) ?? false;
+      // Was this folder already dismissed in-session before the scan started?
+      // Yes if it was previously in state.newPaths but markSeen cleared it.
+      // preScanNewPaths holds what was new BEFORE dismissal — if folder.path
+      // is absent from preScanNewPaths AND absent from disk it was dismissed.
+      final folderDismissedInSession =
+          !folderOnDisk && !preScanNewPaths.contains(folder.path);
+
+      if (initialised && !folderOnDisk && !folderDismissedInSession) {
         newPaths.add(folder.path);
+      } else {
+        alreadySeenPaths.add(folder.path);
       }
+
       for (final video in folder.videos) {
-        allPaths.add(video.path);
-        if (seenPaths != null && seenPaths.isNotEmpty &&
-            !seenPaths.contains(video.path)) {
+        final videoOnDisk = seenPaths?.contains(video.path) ?? false;
+        final videoDismissedInSession =
+            !videoOnDisk && !preScanNewPaths.contains(video.path);
+
+        if (initialised && !videoOnDisk && !videoDismissedInSession) {
           newPaths.add(video.path);
-          newPaths.add(folder.path);
+          newPaths.add(folder.path); // keep folder badge alive too
+        } else {
+          alreadySeenPaths.add(video.path);
         }
       }
     }
@@ -349,36 +399,50 @@ class FoldersNotifier extends Notifier<FoldersState> {
     );
 
     await Future.wait([
-      _saveSeenPaths(allPaths),
+      _saveSeenPaths(alreadySeenPaths),
       _saveCache(merged),
     ]);
   }
+
+  // ── Mark a video as seen (user opened it) ─────────────────────────────────
 
   void markSeen(String videoPath) {
     if (!state.newPaths.contains(videoPath)) return;
     final updated = Set<String>.from(state.newPaths)..remove(videoPath);
 
+    // FIX #1: Also clear + persist the folder path when the last new video
+    // in it is watched. Previously only videoPath was written to disk, so the
+    // folder path stayed absent from seenPaths and re-badged on next scan.
+    String? clearedFolderPath;
     for (final folder in state.folders) {
       if (folder.videos.any((v) => v.path == videoPath)) {
         final folderStillNew =
             folder.videos.any((v) => updated.contains(v.path));
-        if (!folderStillNew) updated.remove(folder.path);
+        if (!folderStillNew) {
+          updated.remove(folder.path);
+          clearedFolderPath = folder.path;
+        }
         break;
       }
     }
 
     state = state.copyWith(newPaths: updated);
-    _persistSeenRemoval(videoPath);
+    _persistSeenRemoval(videoPath, clearedFolderPath: clearedFolderPath);
   }
 
-  Future<void> _persistSeenRemoval(String videoPath) async {
+  Future<void> _persistSeenRemoval(
+    String videoPath, {
+    String? clearedFolderPath,
+  }) async {
     try {
       final prefs = await _p;
       final raw = prefs.getString(_seenPathsKey);
       if (raw == null) return;
-      final list = (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
-      list.add(videoPath);
-      await prefs.setString(_seenPathsKey, jsonEncode(list.toList()));
+      final set = (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
+      set.add(videoPath);
+      // FIX #1: persist folder path too when all its videos are now seen.
+      if (clearedFolderPath != null) set.add(clearedFolderPath);
+      await prefs.setString(_seenPathsKey, jsonEncode(set.toList()));
     } catch (_) {}
   }
 
