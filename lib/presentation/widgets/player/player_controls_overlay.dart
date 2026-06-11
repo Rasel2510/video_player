@@ -383,15 +383,14 @@ class _SeekPill extends StatelessWidget {
     final isForward = seconds > 0;
     return GestureDetector(
       onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            isForward ? Icons.forward_10_rounded : Icons.replay_10_rounded,
-            size: 36,
-            color: _kWhite60,
-          ),
-        ],
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Icon(
+          isForward ? Icons.forward_10_rounded : Icons.replay_10_rounded,
+          size: 36,
+          color: _kWhite60,
+        ),
       ),
     );
   }
@@ -407,13 +406,17 @@ class _TrackButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: enabled ? onTap : null,
-        child: Icon(icon, size: 34, color: enabled ? _kWhite60 : _kWhite12),
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Icon(icon, size: 34, color: enabled ? _kWhite60 : _kWhite12),
+        ),
       );
 }
 
 // ── Bottom bar ────────────────────────────────────────────────────────────────
 
-class _BottomBar extends ConsumerWidget {
+class _BottomBar extends StatelessWidget {
   final void Function(double) onSeekStart;
   final void Function(double) onSeekUpdate;
   final void Function(double) onSeekEnd;
@@ -429,74 +432,118 @@ class _BottomBar extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // One combined select — position updates every second so minimising
-    // listener count here meaningfully reduces per-second overhead.
-    final (:position, :duration, :progress, :fitMode, :rotationMode) =
-        ref.watch(playerProvider.select((s) => (
-              position: s.position,
-              duration: s.duration,
-              progress: s.progress,
-              fitMode: s.fitMode,
-              rotationMode: s.rotationMode,
-            )));
-
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _MinimalistSlider(
-            value: progress.clamp(0.0, 1.0),
-            onChangeStart: onSeekStart,
-            onChanged: onSeekUpdate,
-            onChangeEnd: onSeekEnd,
-          ),
-          const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                DurationFormatter.format(position),
-                style: const TextStyle(
-                  color: _kWhite100,
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              Text(
-                '−${DurationFormatter.format(duration - position)}',
-                style: const TextStyle(
-                  color: _kWhite60,
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
+          _PlaybackProgressControls(
+            onSeekStart: onSeekStart,
+            onSeekUpdate: onSeekUpdate,
+            onSeekEnd: onSeekEnd,
           ),
           const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              _MiniChip(label: fitMode.label, onTap: onCycleFitMode),
-              const SizedBox(width: 12),
-              _GlassIconButton(
-                icon: switch (rotationMode) {
-                  RotationMode.auto => Icons.screen_rotation_rounded,
-                  RotationMode.landscape =>
-                    Icons.stay_current_landscape_rounded,
-                  RotationMode.portrait => Icons.stay_current_portrait_rounded,
-                },
-                size: 24,
-                onTap: onToggleFullscreen,
-              ),
-            ],
+          _BottomBarActions(
+            onCycleFitMode: onCycleFitMode,
+            onToggleFullscreen: onToggleFullscreen,
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PlaybackProgressControls extends ConsumerWidget {
+  final void Function(double) onSeekStart;
+  final void Function(double) onSeekUpdate;
+  final void Function(double) onSeekEnd;
+
+  const _PlaybackProgressControls({
+    required this.onSeekStart,
+    required this.onSeekUpdate,
+    required this.onSeekEnd,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final (:position, :duration, :progress) =
+        ref.watch(playerProvider.select((s) => (
+              position: s.position,
+              duration: s.duration,
+              progress: s.progress,
+            )));
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _MinimalistSlider(
+          value: progress.clamp(0.0, 1.0),
+          onChangeStart: onSeekStart,
+          onChanged: onSeekUpdate,
+          onChangeEnd: onSeekEnd,
+        ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              DurationFormatter.format(position),
+              style: const TextStyle(
+                color: _kWhite100,
+                fontSize: 12,
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+            Text(
+              '−${DurationFormatter.format(duration - position)}',
+              style: const TextStyle(
+                color: _kWhite60,
+                fontSize: 12,
+                fontFamily: 'monospace',
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _BottomBarActions extends ConsumerWidget {
+  final VoidCallback onCycleFitMode;
+  final VoidCallback onToggleFullscreen;
+
+  const _BottomBarActions({
+    required this.onCycleFitMode,
+    required this.onToggleFullscreen,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final (:fitMode, :rotationMode) = ref.watch(playerProvider.select((s) => (
+          fitMode: s.fitMode,
+          rotationMode: s.rotationMode,
+        )));
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        _MiniChip(label: fitMode.label, onTap: onCycleFitMode),
+        const SizedBox(width: 12),
+        _GlassIconButton(
+          icon: switch (rotationMode) {
+            RotationMode.auto => Icons.screen_rotation_rounded,
+            RotationMode.landscape => Icons.stay_current_landscape_rounded,
+            RotationMode.portrait => Icons.stay_current_portrait_rounded,
+          },
+          size: 24,
+          onTap: onToggleFullscreen,
+        ),
+      ],
     );
   }
 }
