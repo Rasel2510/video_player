@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_video_player/core/theme/app_theme.dart';
 import '../../../core/utils/duration_formatter.dart';
 import '../../providers/player_provider.dart';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 
 const _kWhite100 = Colors.white;
-const _kWhite60  = Color(0x99FFFFFF);
-const _kWhite30  = Color(0x4DFFFFFF);
-const _kWhite12  = Color(0x1FFFFFFF);
-const _kBlack70  = Color(0xB3000000);
-const _kBlack40  = Color(0x66000000);
-const _kAccent   = Color(0xFF6C8EFF);
-const _kOrange   = Color(0xFFFF8C00);
+const _kWhite60 = Color(0x99FFFFFF);
+const _kWhite30 = Color(0x4DFFFFFF);
+const _kWhite12 = Color(0x1FFFFFFF);
+const _kBlack70 = Color(0xB3000000);
+const _kBlack40 = Color(0x66000000);
+const _kOrange = Color(0xFFFF8C00);
 
 // ── Main overlay ──────────────────────────────────────────────────────────────
 
@@ -86,11 +86,17 @@ class PlayerControlsOverlay extends StatelessWidget {
     return Stack(
       children: [
         const Positioned(
-          top: 0, left: 0, right: 0, height: 180,
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 180,
           child: _kTopGradient,
         ),
         const Positioned(
-          bottom: 0, left: 0, right: 0, height: 200,
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 200,
           child: _kBottomGradient,
         ),
         SafeArea(
@@ -128,8 +134,6 @@ class PlayerControlsOverlay extends StatelessWidget {
       ],
     );
   }
-
-
 }
 
 // ── Top bar ───────────────────────────────────────────────────────────────────
@@ -169,22 +173,22 @@ class _TopBar extends ConsumerWidget {
       :hasSubtitles,
       :subtitlesEnabled,
     ) = ref.watch(playerProvider.select((s) => (
-          speed:            s.playbackSpeed,
-          volume:           s.volume,
-          loopMode:         s.loopMode,
+          speed: s.playbackSpeed,
+          volume: s.volume,
+          loopMode: s.loopMode,
           hasMultipleAudio: s.audioTracks
                   .where((t) => t.id != 'no' && t.id != 'auto')
-                  .length > 1,
-          hasSubtitles:     s.subtitleTracks.isNotEmpty,
+                  .length >
+              1,
+          hasSubtitles: s.subtitleTracks.isNotEmpty,
           subtitlesEnabled: s.subtitlesEnabled,
         )));
 
     // Avoid allocating a new string on every build when speed hasn't changed.
     // The select above already prevents rebuild unless speed changes, so this
     // is just defensive clarity.
-    final speedLabel = speed == speed.roundToDouble()
-        ? '${speed.toInt()}×'
-        : '$speed×';
+    final speedLabel =
+        speed == speed.roundToDouble() ? '${speed.toInt()}×' : '$speed×';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
@@ -306,9 +310,9 @@ class _CenterControls extends ConsumerWidget {
     // Single combined select for all three booleans.
     final (:isPlaying, :hasPrevious, :hasNext) =
         ref.watch(playerProvider.select((s) => (
-              isPlaying:   s.isPlaying,
+              isPlaying: s.isPlaying,
               hasPrevious: s.hasPrevious,
-              hasNext:     s.hasNext,
+              hasNext: s.hasNext,
             )));
     final hasSiblings = hasPrevious || hasNext;
 
@@ -397,13 +401,13 @@ class _TrackButton extends StatelessWidget {
   final IconData icon;
   final bool enabled;
   final VoidCallback onTap;
-  const _TrackButton({required this.icon, required this.enabled, required this.onTap});
+  const _TrackButton(
+      {required this.icon, required this.enabled, required this.onTap});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
         onTap: enabled ? onTap : null,
-        child: Icon(icon, size: 34,
-            color: enabled ? _kWhite60 : _kWhite12),
+        child: Icon(icon, size: 34, color: enabled ? _kWhite60 : _kWhite12),
       );
 }
 
@@ -430,10 +434,10 @@ class _BottomBar extends ConsumerWidget {
     // listener count here meaningfully reduces per-second overhead.
     final (:position, :duration, :progress, :fitMode, :rotationMode) =
         ref.watch(playerProvider.select((s) => (
-              position:     s.position,
-              duration:     s.duration,
-              progress:     s.progress,
-              fitMode:      s.fitMode,
+              position: s.position,
+              duration: s.duration,
+              progress: s.progress,
+              fitMode: s.fitMode,
               rotationMode: s.rotationMode,
             )));
 
@@ -455,16 +459,20 @@ class _BottomBar extends ConsumerWidget {
               Text(
                 DurationFormatter.format(position),
                 style: const TextStyle(
-                  color: _kWhite100, fontSize: 12,
-                  fontFamily: 'monospace', fontWeight: FontWeight.w600,
+                  color: _kWhite100,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
                 ),
               ),
               Text(
                 '−${DurationFormatter.format(duration - position)}',
                 style: const TextStyle(
-                  color: _kWhite60, fontSize: 12,
-                  fontFamily: 'monospace', letterSpacing: 0.5,
+                  color: _kWhite60,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.5,
                 ),
               ),
             ],
@@ -478,7 +486,8 @@ class _BottomBar extends ConsumerWidget {
               _GlassIconButton(
                 icon: switch (rotationMode) {
                   RotationMode.auto => Icons.screen_rotation_rounded,
-                  RotationMode.landscape => Icons.stay_current_landscape_rounded,
+                  RotationMode.landscape =>
+                    Icons.stay_current_landscape_rounded,
                   RotationMode.portrait => Icons.stay_current_portrait_rounded,
                 },
                 size: 24,
@@ -544,25 +553,29 @@ class _GlassIconButton extends StatelessWidget {
     required this.icon,
     required this.size,
     required this.onTap,
-    this.active   = false,
-    this.dim      = false,
-    this.boosted  = false,
+    this.active = false,
+    this.dim = false,
+    this.boosted = false,
     this.loopMode,
   });
 
-  // Inlined as a getter so the expression is evaluated once per build,
+  // Inlined as a method so the expression is evaluated once per build,
   // not allocated as a separate stack frame.
-  Color get _iconColor {
-    if (dim) { return _kWhite30; }
-    if (boosted) { return _kOrange; }
+  Color _getIconColor(BuildContext context) {
+    if (dim) {
+      return _kWhite30;
+    }
+    if (boosted) {
+      return _kOrange;
+    }
     if (loopMode != null) {
       return switch (loopMode!) {
-        LoopMode.none    => _kWhite100,
-        LoopMode.loopAll => _kAccent,
+        LoopMode.none => _kWhite100,
+        LoopMode.loopAll => context.colors.accent,
         LoopMode.loopOne => _kOrange,
       };
     }
-    return active ? _kAccent : _kWhite100;
+    return active ? context.colors.accent : _kWhite100;
   }
 
   @override
@@ -572,7 +585,7 @@ class _GlassIconButton extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.all(8),
-        child: Icon(icon, size: size, color: _iconColor),
+        child: Icon(icon, size: size, color: _getIconColor(context)),
       ),
     );
   }

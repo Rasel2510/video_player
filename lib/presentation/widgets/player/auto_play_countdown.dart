@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/app_theme.dart';
 
 class AutoPlayCountdown extends StatelessWidget {
   final int countdown;
@@ -37,12 +38,12 @@ class AutoPlayCountdown extends StatelessWidget {
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  CircularProgressIndicator(
-                    value: countdown / 5.0,
-                    strokeWidth: 2.5,
-                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6C8EFF)),
-                    backgroundColor: Colors.white12,
-                  ),
+                    CircularProgressIndicator(
+                      value: countdown / 5.0,
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(context.colors.accent),
+                      backgroundColor: Colors.white12,
+                    ),
                   Text(
                     '$countdown',
                     style: const TextStyle(
@@ -91,7 +92,7 @@ class AutoPlayCountdown extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF6C8EFF),
+                  color: context.colors.accent,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Text(

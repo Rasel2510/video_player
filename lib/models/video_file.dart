@@ -34,7 +34,7 @@ class VideoFile {
       // Legacy / niche
       '.flv', '.wmv', '.m4v', '.3gp', '.3g2',
       '.rmvb', '.rm', '.divx', '.xvid',
-      '.vob', '.ogv', '.m2v', '.mxf',
+      '.vob', '.ogv', '.m2v', '.mxf', '.mpg', '.mpeg',
       // Apple
       '.m4b',
     };
