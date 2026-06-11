@@ -56,7 +56,7 @@ class ThumbnailService {
   static final _sanitiseRe = RegExp(r'[^a-zA-Z0-9._\-]');
 
   static Future<Directory> _initCacheDir() async {
-    final base = await getTemporaryDirectory();
+    final base = await getApplicationSupportDirectory();
     final dir = Directory(p.join(base.path, 'vid_thumbs'));
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
