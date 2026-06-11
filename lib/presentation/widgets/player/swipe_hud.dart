@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../providers/player_provider.dart';
 
 class SwipeHud extends StatelessWidget {
@@ -38,8 +39,8 @@ class SwipeHud extends StatelessWidget {
     }
 
     // ── Color: orange for boosted volume, yellow for brightness, blue normal ─
-    const Color normalColor = Color(0xFF66AAFF);
-    const Color boostColor  = Color(0xFFFF8C00);
+    final Color normalColor = context.colors.accent;
+    final Color boostColor  = context.colors.accent; // Or use a specific boost color from theme if available, otherwise just use accent or accentGlow
     const Color brightnessColor = Color(0xFFFFE066);
     final Color color = isBrightness
         ? brightnessColor
@@ -76,7 +77,7 @@ class SwipeHud extends StatelessWidget {
               width: 4,
               height: 90,
               child: isBoosted
-                  ? _BoostProgressBar(value: value.clamp(0.0, 1.0))
+                  ? _BoostProgressBar(value: value.clamp(0.0, 1.0), normalColor: normalColor, boostColor: boostColor)
                   : ClipRRect(
                       borderRadius: BorderRadius.circular(2),
                       child: RotatedBox(
@@ -113,23 +114,37 @@ class SwipeHud extends StatelessWidget {
 
 class _BoostProgressBar extends StatelessWidget {
   final double value; // 0.0 – 1.0
+  final Color normalColor;
+  final Color boostColor;
 
-  const _BoostProgressBar({required this.value});
+  const _BoostProgressBar({
+    required this.value,
+    required this.normalColor,
+    required this.boostColor,
+  });
 
   @override
   Widget build(BuildContext context) =>
       // RepaintBoundary isolates the custom-painted boost bar into its own
       // layer so surrounding widgets (icon, text) don't trigger its repaint.
-      RepaintBoundary(child: CustomPaint(painter: _BoostBarPainter(value: value)));
+      RepaintBoundary(child: CustomPaint(painter: _BoostBarPainter(
+        value: value,
+        normalColor: normalColor,
+        boostColor: boostColor,
+      )));
 }
 
 class _BoostBarPainter extends CustomPainter {
   final double value; // 0.0 – 1.0, where 0.5 == device max (100 %)
+  final Color normalColor;
+  final Color boostColor;
 
-  const _BoostBarPainter({required this.value});
+  const _BoostBarPainter({
+    required this.value,
+    required this.normalColor,
+    required this.boostColor,
+  });
 
-  static const Color _normalColor = Color(0xFF66AAFF); // blue
-  static const Color _boostColor  = Color(0xFFFF8C00); // orange
   static const Color _bgColor     = Color(0x2EFFFFFF); // 18 % white
 
   @override
@@ -153,7 +168,7 @@ class _BoostBarPainter extends CustomPainter {
           Rect.fromLTWH(0, size.height - filled, size.width, filled),
           const Radius.circular(2),
         ),
-        Paint()..color = _normalColor,
+        Paint()..color = normalColor,
       );
     } else {
       // Full normal (blue) half at the bottom
@@ -162,7 +177,7 @@ class _BoostBarPainter extends CustomPainter {
           Rect.fromLTWH(0, midH, size.width, midH),
           const Radius.circular(2),
         ),
-        Paint()..color = _normalColor,
+        Paint()..color = normalColor,
       );
       // Boost (orange) region from midH upward
       final double boostH   = filled - midH;
@@ -172,7 +187,7 @@ class _BoostBarPainter extends CustomPainter {
           Rect.fromLTWH(0, boostTop, size.width, boostH),
           const Radius.circular(2),
         ),
-        Paint()..color = _boostColor,
+        Paint()..color = boostColor,
       );
     }
   }

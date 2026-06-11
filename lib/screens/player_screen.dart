@@ -412,7 +412,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         final n = ref.read(playerProvider.notifier);
                         final s = ref.read(playerProvider);
                         n.init(
-                          s.currentVideo?.path ?? '',
+                          s.currentVideo?.path ?? widget.filePath,
                           folderVideos: s.folderVideos,
                           initialIndex: s.currentIndex,
                         );

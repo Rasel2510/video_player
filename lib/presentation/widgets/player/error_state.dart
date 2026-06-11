@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/app_theme.dart';
 
 class ErrorState extends StatelessWidget {
   final String? message;
@@ -23,12 +24,12 @@ class ErrorState extends StatelessWidget {
             Container(
               width: 64,
               height: 64,
-              decoration: const BoxDecoration(
-                color: Color(0xFF2A1010),
+              decoration: BoxDecoration(
+                color: context.colors.errorBg,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.error_outline_rounded,
-                  size: 30, color: Color(0xFFFF5C5C)),
+              child: Icon(Icons.error_outline_rounded,
+                  size: 30, color: context.colors.errorRed),
             ),
             const SizedBox(height: 20),
             const Text(
@@ -70,7 +71,7 @@ class ErrorState extends StatelessWidget {
                   icon: const Icon(Icons.refresh_rounded, size: 18),
                   label: const Text('Retry'),
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF6C8EFF),
+                    backgroundColor: context.colors.accent,
                     shape: const StadiumBorder(),
                   ),
                 ),
