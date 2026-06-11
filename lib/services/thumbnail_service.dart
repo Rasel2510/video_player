@@ -25,7 +25,7 @@ class ThumbnailService {
   final Map<String, File?> _resolved = {};
 
   // ── Concurrency semaphore ─────────────────────────────────────────────────
-  static const int _kMaxConcurrent = 4;
+  static const int _kMaxConcurrent = 6;
   int _activeCount = 0;
   final List<Completer<void>> _waiters = [];
 
@@ -86,7 +86,7 @@ class ThumbnailService {
         // FIX #THUMB-FAST: 1 s instead of 3 s — most videos have a valid
         // frame at 1 s, cutting extraction latency by ~2/3 on cold start.
         timeMs: 1000,
-        maxWidth: 160,
+        maxWidth: 240,
         quality: 72,
       );
 

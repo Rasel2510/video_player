@@ -161,7 +161,7 @@ void _quickScanSync(Directory dir, Map<String, int> snapshot) {
 
     if (videoCount > 0) {
       final cached = snapshot[dir.path];
-      if (cached == null || cached != videoCount) throw _ChangedSignal();
+      if (cached == null || cached != videoCount) throw const _ChangedSignal();
     }
 
     for (final sub in subs) {

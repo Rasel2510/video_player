@@ -21,7 +21,7 @@ class RecentFilesService {
     for (final s in raw) {
       try {
         final vf = VideoFile.fromJson(jsonDecode(s));
-        if (File(vf.path).existsSync()) files.add(vf);
+        if (await File(vf.path).exists()) files.add(vf);
       } catch (_) {}
     }
     return files;

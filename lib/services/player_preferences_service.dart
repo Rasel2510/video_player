@@ -18,6 +18,7 @@ class PlayerPreferencesService {
   static const _speedKey     = 'player_speed_v1';
   static const _sortByKey    = 'folder_sort_by_v1';
   static const _themeModeKey = 'app_theme_mode_v1';
+  static const _loopModeKey  = 'player_loop_mode_v1';
 
   // ── Fit mode ──────────────────────────────────────────────────────────────
 
@@ -57,5 +58,15 @@ class PlayerPreferencesService {
 
   Future<void> saveThemeModeIndex(int index) async {
     try { await (await _p).setInt(_themeModeKey, index); } catch (_) {}
+  }
+
+  // ── Loop mode ──────────────────────────────────────────────────────────────
+
+  Future<int> loadLoopModeIndex() async {
+    try { return (await _p).getInt(_loopModeKey) ?? 0; } catch (_) { return 0; }
+  }
+
+  Future<void> saveLoopModeIndex(int index) async {
+    try { await (await _p).setInt(_loopModeKey, index); } catch (_) {}
   }
 }

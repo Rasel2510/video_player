@@ -251,13 +251,16 @@ class PlayerNotifier extends Notifier<PlayerState> {
       BrightnessService.instance.getBrightness()                 // [4]
           .then<Object?>((v) => v)
           .catchError((_) => null),
+      PlayerPreferencesService.instance.loadLoopModeIndex(),     // [5]
     ]);
     final fitModeIdx    = results[0] as int;
     final savedSpeed    = results[1] as double;
     final deviceVol     = results[2] as double;
     final currentBri    = results[3] as double;
     final savedBri      = results[4] as double?;
+    final loopModeIdx   = results[5] as int;
     final fitMode       = FitMode.values[fitModeIdx.clamp(0, FitMode.values.length - 1)];
+    final loopMode      = LoopMode.values[loopModeIdx.clamp(0, LoopMode.values.length - 1)];
 
     final activeBri  = savedBri ?? currentBri;
 
@@ -268,6 +271,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
       fitMode: fitMode,
       playbackSpeed: savedSpeed,
       brightness: activeBri,
+      loopMode: loopMode,
     );
 
     _disposeInternal();
@@ -336,9 +340,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     _subs.add(_player!.stream.position.listen((v) {
       state = state.copyWith(position: v);
-      // Throttled periodic save (5-second debounce).
+      // Throttled periodic save (3-second debounce).
       _saveTimer?.cancel();
-      _saveTimer = Timer(const Duration(seconds: 5), _savePosition);
+      _saveTimer = Timer(const Duration(seconds: 3), _savePosition);
     }));
 
     _subs.add(_player!.stream.duration.listen((v) {
@@ -525,6 +529,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
   void cycleLoopMode() {
     final next = state.loopMode.next;
     state = state.copyWith(loopMode: next);
+    PlayerPreferencesService.instance.saveLoopModeIndex(next.index);
     _player?.setPlaylistMode(switch (next) {
       LoopMode.none    => PlaylistMode.none,
       LoopMode.loopAll => PlaylistMode.loop,
