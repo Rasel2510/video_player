@@ -177,7 +177,7 @@ flutter build apk --release
 
 ---
 
-## Dependencies
+## Dependencies  
 
 | Package | Purpose |
 |---|---|
