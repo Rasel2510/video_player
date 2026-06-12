@@ -26,3 +26,4 @@ class VideoPlayerApp extends ConsumerWidget {
     );
   }
 }
+  
