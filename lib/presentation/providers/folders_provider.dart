@@ -243,6 +243,8 @@ class FoldersState {
 // ── Notifier ──────────────────────────────────────────────────────────────────
 
 class FoldersNotifier extends Notifier<FoldersState> {
+  final Set<String> _sessionSeenPaths = {};
+
   @override
   FoldersState build() => const FoldersState();
 
@@ -264,10 +266,26 @@ class FoldersNotifier extends Notifier<FoldersState> {
           return roots.any((root) => f.path.startsWith(root));
         }).toList();
 
+        final seenPaths = await _loadSeenPaths();
+        final initialised = seenPaths != null && seenPaths.isNotEmpty;
+        final newPaths = <String>{};
+        if (initialised) {
+          for (final f in validFolders) {
+            if (!seenPaths.contains(f.path) && !_sessionSeenPaths.contains(f.path)) newPaths.add(f.path);
+            for (final v in f.videos) {
+              if (!seenPaths.contains(v.path) && !_sessionSeenPaths.contains(v.path)) {
+                newPaths.add(v.path);
+                newPaths.add(f.path);
+              }
+            }
+          }
+        }
+
         state = state.copyWith(
           folders: validFolders,
           fromCache: true,
           storageRoots: roots,
+          newPaths: newPaths,
         );
         _backgroundCheck(roots);
         return;
@@ -293,16 +311,9 @@ class FoldersNotifier extends Notifier<FoldersState> {
       storageRoots: roots,
     );
 
-    // FIX #2: Capture which paths are CURRENTLY showing as new in the UI
-    // before the scan starts. markSeen() removes a path from state.newPaths
-    // immediately (in memory) but _persistSeenRemoval() is async — the path
-    // may not be in seenPaths on disk yet when _loadSeenPaths() runs below.
-    // Any path absent from preScanNewPaths but absent from the new state.newPaths
-    // was dismissed by the user during this session and must NOT be re-badged.
-    // We handle this by checking: if a path was NOT in preScanNewPaths and is
-    // also NOT in seenPaths on disk, it means markSeen() cleared it in-memory
-    // already — so we treat it as seen for this scan pass.
-    final preScanNewPaths = Set<String>.from(state.newPaths);
+    // FIX #2: Capture which paths were dismissed in this session.
+    // We use _sessionSeenPaths instead of trying to deduce it from state.newPaths
+    // which was incorrectly marking genuinely new files as dismissed.
 
     final Map<String, List<VideoFile>> folderMap = {};
     int progress = 0;
@@ -358,19 +369,11 @@ class FoldersNotifier extends Notifier<FoldersState> {
       //   1. seenPaths is initialised (null = first install → no badges)
       //   2. seenPaths is not empty (empty first scan → no badges)
       //   3. path is not in seenPaths on disk
-      //   4. FIX #2: path was in preScanNewPaths OR is not already dismissed
-      //      in-session. If it was in preScanNewPaths it is genuinely still
-      //      new. If it was NOT in preScanNewPaths it means markSeen() already
-      //      removed it before this scan — don't re-badge it.
+      //   4. FIX #2: path was not dismissed in the current session.
       final bool initialised = seenPaths != null && seenPaths.isNotEmpty;
 
       final folderOnDisk = seenPaths?.contains(folder.path) ?? false;
-      // Was this folder already dismissed in-session before the scan started?
-      // Yes if it was previously in state.newPaths but markSeen cleared it.
-      // preScanNewPaths holds what was new BEFORE dismissal — if folder.path
-      // is absent from preScanNewPaths AND absent from disk it was dismissed.
-      final folderDismissedInSession =
-          !folderOnDisk && !preScanNewPaths.contains(folder.path);
+      final folderDismissedInSession = _sessionSeenPaths.contains(folder.path);
 
       if (initialised && !folderOnDisk && !folderDismissedInSession) {
         newPaths.add(folder.path);
@@ -380,8 +383,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
 
       for (final video in folder.videos) {
         final videoOnDisk = seenPaths?.contains(video.path) ?? false;
-        final videoDismissedInSession =
-            !videoOnDisk && !preScanNewPaths.contains(video.path);
+        final videoDismissedInSession = _sessionSeenPaths.contains(video.path);
 
         if (initialised && !videoOnDisk && !videoDismissedInSession) {
           newPaths.add(video.path);
@@ -410,6 +412,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
   void markSeen(String videoPath) {
     if (!state.newPaths.contains(videoPath)) return;
     final updated = Set<String>.from(state.newPaths)..remove(videoPath);
+    _sessionSeenPaths.add(videoPath);
 
     // FIX #1: Also clear + persist the folder path when the last new video
     // in it is watched. Previously only videoPath was written to disk, so the
@@ -421,6 +424,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
             folder.videos.any((v) => updated.contains(v.path));
         if (!folderStillNew) {
           updated.remove(folder.path);
+          _sessionSeenPaths.add(folder.path);
           clearedFolderPath = folder.path;
         }
         break;
