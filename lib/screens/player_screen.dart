@@ -12,8 +12,9 @@ import '../presentation/widgets/player/subtitle_sheet.dart';
 import '../presentation/widgets/player/lock_overlay.dart';
 import '../presentation/widgets/player/auto_play_countdown.dart';
 import '../presentation/widgets/player/error_state.dart';
-import '../presentation/widgets/player/seek_flash.dart';
 import '../presentation/widgets/player/swipe_hud.dart';
+import '../presentation/widgets/player/player_gesture_layer.dart';
+import '../presentation/widgets/player/zoom_indicator_overlay.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   final String filePath;
@@ -37,18 +38,6 @@ class PlayerScreen extends ConsumerStatefulWidget {
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen>
     with TickerProviderStateMixin {
-  // ── Seek flash ─────────────────────────────────────────────────────────────
-  late final AnimationController _seekFlashCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 400),
-  );
-  late final Animation<double> _seekFlashAnim = CurvedAnimation(
-    parent: _seekFlashCtrl,
-    curve: Curves.easeOut,
-  );
-  bool _seekFlashLeft = false;
-  bool _seekFlashRight = false;
-
   // ── Lock icon animation ────────────────────────────────────────────────────
   // Driven locally so showing/hiding the lock icon never triggers a state
   // update → no Consumer rebuild → no platform-view re-composite → no white flash.
@@ -57,24 +46,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     duration: const Duration(milliseconds: 250),
   );
   Timer? _lockIconLocalTimer;
-
-  // ── Scale / pinch-to-zoom ──────────────────────────────────────────────────
-  // We handle all pointer gestures through onScale* so that single-finger
-  // vertical swipes (brightness / volume) and two-finger pinch share one
-  // recogniser without conflicting.
-  double _baseZoomScale = 1.0;
-  double _dragStartDx = 0;
-  bool _swipeActive = false;
-  bool _isPinching = false;
-  // FIX: after a pinch ends, ignore the stray single-finger events that fire
-  // as the second finger lifts — they would otherwise trigger a brightness/
-  // volume swipe unintentionally.
-  bool _postPinchCooldown = false;
-  
-  double _dragStartDy = 0;
-  bool _swipeCommitted = false;
-  bool _isSeekSwipe = false;
-  double _seekStartProgress = 0;
 
   // Convenience getter — ref.read(playerProvider.notifier) repeated in build()
   // is equivalent each call (provider identity is stable), but a getter makes
@@ -96,7 +67,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   void dispose() {
-    _seekFlashCtrl.dispose();
     _lockIconCtrl.dispose();
     _lockIconLocalTimer?.cancel();
     _notifier.dispose();
@@ -118,23 +88,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _hideLockIconLocal() {
     _lockIconLocalTimer?.cancel();
     _lockIconCtrl.reverse();
-  }
-
-  // ── Seek flash ─────────────────────────────────────────────────────────────
-
-  void _triggerSeekFlash(bool isLeft) {
-    setState(() {
-      _seekFlashLeft = isLeft;
-      _seekFlashRight = !isLeft;
-    });
-    _seekFlashCtrl.forward(from: 0).then((_) {
-      if (mounted) {
-        setState(() {
-          _seekFlashLeft = false;
-          _seekFlashRight = false;
-        });
-      }
-    });
   }
 
   // ── Sheet helpers ──────────────────────────────────────────────────────────
@@ -214,8 +167,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-
     return PopScope(
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) await _notifier.dispose();
@@ -238,107 +189,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             return Stack(
               children: [
                 // ── Main gesture layer (only active when NOT locked) ──────────
-                GestureDetector(
-                  onTap: () {
-                    if (!_swipeActive && !_isPinching) {
-                      controlsVisible
-                          ? _notifier.hideControls()
-                          : _notifier.showControls();
-                    }
-                  },
-                  onDoubleTapDown: (details) {
-                    if (isLocked) return;
-                    final isLeft = details.globalPosition.dx < size.width / 2;
-                    if (isLeft) {
-                      _notifier.seekRelative(-10);
-                    } else {
-                      _notifier.seekRelative(10);
-                    }
-                    _triggerSeekFlash(isLeft);
-                  },
-                  onScaleStart: (details) {
-                    if (isLocked) return;
-                    if (details.pointerCount >= 2) {
-                      _isPinching = true;
-                      _swipeActive = false;
-                      _postPinchCooldown = false;
-                      _baseZoomScale = ref.read(playerProvider).zoomScale;
-                    } else {
-                      if (_postPinchCooldown) return;
-                      _isPinching = false;
-                      _dragStartDx = details.localFocalPoint.dx;
-                      _dragStartDy = details.localFocalPoint.dy;
-                      _swipeActive = true;
-                      _swipeCommitted = false;
-                      _isSeekSwipe = false;
-                    }
-                  },
-                  onScaleUpdate: (details) {
-                    if (isLocked) return;
-                    if (_isPinching || details.pointerCount >= 2) {
-                      _isPinching = true;
-                      _swipeActive = false;
-                      if (details.pointerCount >= 2) {
-                        _notifier.setZoomScale(_baseZoomScale * details.scale);
-                      }
-                    } else if (_swipeActive && !_postPinchCooldown) {
-                      if (!_swipeCommitted) {
-                        final dx = details.localFocalPoint.dx - _dragStartDx;
-                        final dy = details.localFocalPoint.dy - _dragStartDy;
-                        if (dx.abs() > 15 || dy.abs() > 15) {
-                          _swipeCommitted = true;
-                          if (dx.abs() > dy.abs()) {
-                            _isSeekSwipe = true;
-                            _seekStartProgress = ref.read(playerProvider).progress;
-                            _notifier.beginSeek(_seekStartProgress);
-                            _notifier.showControls();
-                          } else {
-                            _isSeekSwipe = false;
-                            _notifier.startSwipe(_dragStartDx, size.width);
-                          }
-                        } else {
-                          return;
-                        }
-                      }
-                      if (_isSeekSwipe) {
-                        final durationMs =
-                            ref.read(playerProvider).duration.inMilliseconds;
-                        if (durationMs > 0) {
-                          final deltaMs =
-                              (details.localFocalPoint.dx - _dragStartDx) * 300;
-                          final seekStartMs = _seekStartProgress * durationMs;
-                          final newMs = (seekStartMs + deltaMs)
-                              .clamp(0.0, durationMs.toDouble());
-                          _notifier.updateSeek(newMs / durationMs);
-                        }
-                      } else {
-                        _notifier.updateSwipe(
-                            details.focalPointDelta.dy, size.height);
-                      }
-                    }
-                  },
-                  onScaleEnd: (_) {
-                    if (isLocked) return;
-                    if (_isPinching) {
-                      _isPinching = false;
-                      _postPinchCooldown = true;
-                      Future.delayed(
-                        const Duration(milliseconds: 150),
-                        () => _postPinchCooldown = false,
-                      );
-                    } else if (_swipeActive) {
-                      _swipeActive = false;
-                      if (_swipeCommitted) {
-                        if (_isSeekSwipe) {
-                          _notifier.endSeek(
-                              ref.read(playerProvider).seekValue);
-                        } else {
-                          _notifier.endSwipe();
-                        }
-                      }
-                    }
-                  },
-                  child: child,
+                PlayerGestureLayer(
+                  child: child!,
                 ),
 
                 // ── Lock touch-absorber — always in tree, active only when locked ──
@@ -452,25 +304,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 },
               ),
 
-              // ── Seek flash overlays ────────────────────────────────────
-              if (_seekFlashLeft)
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: MediaQuery.of(context).size.width / 2,
-                  child:
-                      SeekFlash(animation: _seekFlashAnim, isForward: false),
-                ),
-              if (_seekFlashRight)
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: MediaQuery.of(context).size.width / 2,
-                  child: SeekFlash(animation: _seekFlashAnim, isForward: true),
-                ),
-
               // ── Swipe HUD ──────────────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
@@ -505,7 +338,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               ),
 
               // ── Zoom indicator — tap to reset ──────────────────────────
-              const _ZoomIndicatorOverlay(),
+              const ZoomIndicatorOverlay(),
 
               // ── Controls overlay ───────────────────────────────────────
               Consumer(
@@ -589,115 +422,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 }
 
-class _ZoomIndicatorOverlay extends ConsumerStatefulWidget {
-  const _ZoomIndicatorOverlay();
 
-  @override
-  ConsumerState<_ZoomIndicatorOverlay> createState() => _ZoomIndicatorOverlayState();
-}
-
-class _ZoomIndicatorOverlayState extends ConsumerState<_ZoomIndicatorOverlay> {
-  Timer? _timer;
-  bool _visible = false;
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  void _showIndicator() {
-    _timer?.cancel();
-    if (!mounted) return;
-    setState(() {
-      _visible = true;
-    });
-    _timer = Timer(const Duration(seconds: 2), () {
-      if (mounted) {
-        setState(() {
-          _visible = false;
-        });
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final zoom = ref.watch(playerProvider.select((s) => s.zoomScale));
-
-    ref.listen<double>(
-      playerProvider.select((s) => s.zoomScale),
-      (previous, next) {
-        if ((next - 1.0).abs() < 0.05) {
-          _timer?.cancel();
-          if (_visible) {
-            setState(() {
-              _visible = false;
-            });
-          }
-        } else if (previous != next) {
-          _showIndicator();
-        }
-      },
-    );
-
-    final show = _visible && (zoom - 1.0).abs() >= 0.05;
-
-    return Positioned(
-      top: 60,
-      left: 0,
-      right: 0,
-      child: Center(
-        child: AnimatedOpacity(
-          opacity: show ? 1.0 : 0.0,
-          duration: const Duration(milliseconds: 200),
-          child: IgnorePointer(
-            ignoring: !show,
-            child: GestureDetector(
-              onTap: () {
-                ref.read(playerProvider.notifier).resetZoom();
-                _timer?.cancel();
-                setState(() {
-                  _visible = false;
-                });
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 7),
-                decoration: BoxDecoration(
-                  color: const Color(0xA6000000),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                      color: const Color(0x33FFFFFF),
-                      width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.zoom_in_rounded,
-                        color: Colors.white70, size: 16),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${zoom.toStringAsFixed(1)}×',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.close_rounded,
-                        color: Colors.white54, size: 14),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 

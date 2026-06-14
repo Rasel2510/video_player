@@ -6,6 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/video_file.dart';
 import '../../models/video_folder.dart';
 import '../../services/folder_scanner.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'folders_provider.freezed.dart';
 
 // ── Storage root discovery ────────────────────────────────────────────────────
 
@@ -205,39 +208,16 @@ VideoFolder _folderFromMap(Map<String, dynamic> m) => VideoFolder(
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-class FoldersState {
-  final List<VideoFolder> folders;
-  final bool isScanning;
-  final int scanProgress;
-  final bool fromCache;
-  final List<String> storageRoots;
-  final Set<String> newPaths;
-
-  const FoldersState({
-    this.folders = const [],
-    this.isScanning = false,
-    this.scanProgress = 0,
-    this.fromCache = false,
-    this.storageRoots = const [],
-    this.newPaths = const {},
-  });
-
-  FoldersState copyWith({
-    List<VideoFolder>? folders,
-    bool? isScanning,
-    int? scanProgress,
-    bool? fromCache,
-    List<String>? storageRoots,
-    Set<String>? newPaths,
-  }) =>
-      FoldersState(
-        folders: folders ?? this.folders,
-        isScanning: isScanning ?? this.isScanning,
-        scanProgress: scanProgress ?? this.scanProgress,
-        fromCache: fromCache ?? this.fromCache,
-        storageRoots: storageRoots ?? this.storageRoots,
-        newPaths: newPaths ?? this.newPaths,
-      );
+@freezed
+class FoldersState with _$FoldersState {
+  const factory FoldersState({
+    @Default([]) List<VideoFolder> folders,
+    @Default(false) bool isScanning,
+    @Default(0) int scanProgress,
+    @Default(false) bool fromCache,
+    @Default([]) List<String> storageRoots,
+    @Default({}) Set<String> newPaths,
+  }) = _FoldersState;
 }
 
 // ── Notifier ──────────────────────────────────────────────────────────────────

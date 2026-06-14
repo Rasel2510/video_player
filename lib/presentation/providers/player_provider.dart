@@ -11,6 +11,9 @@ import '../../services/duration_cache_service.dart';
 import '../../services/player_preferences_service.dart';
 import '../../services/position_service.dart';
 import '../../services/volume_service.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'player_provider.freezed.dart';
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
@@ -48,74 +51,40 @@ extension LoopModeX on LoopMode {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-class PlayerState {
-  final bool isInitialized;
-  final bool isPlaying;
-  final bool controlsVisible;
-  final RotationMode rotationMode;
-  final bool isSeeking;
-  final double seekValue;
-  final Duration position;
-  final Duration duration;
-  final double volume;
-  final double brightness;
-  final double playbackSpeed;
-  final FitMode fitMode;
-  final List<AudioTrack> audioTracks;
-  final AudioTrack? selectedAudioTrack;
-  final SwipeGesture swipeGesture;
-  final double swipeValue;
-  final List<VideoFile> folderVideos;
-  final int currentIndex;
-  final List<SubtitleTrack> subtitleTracks;
-  final SubtitleTrack? selectedSubtitleTrack;
-  final bool subtitlesEnabled;
+@freezed
+class PlayerState with _$PlayerState {
+  const PlayerState._();
 
-  /// True when the gesture-lock button has been activated.
-  final bool isLocked;
-  final bool lockIconVisible;
-
-  /// Set to true + errorMessage populated when media_kit reports an error.
-  final bool hasError;
-  final String? errorMessage;
-
-  /// Non-null when auto-play countdown is running. Counts 5→4→3→2→1 then fires.
-  final int? autoPlayCountdown;
-
-  /// Pinch-to-zoom scale factor (1.0 = normal, clamped to 0.5–4.0).
-  final double zoomScale;
-  final LoopMode loopMode;
-
-  const PlayerState({
-    this.isInitialized = false,
-    this.isPlaying = false,
-    this.controlsVisible = true,
-    this.rotationMode = RotationMode.auto,
-    this.isSeeking = false,
-    this.seekValue = 0,
-    this.position = Duration.zero,
-    this.duration = Duration.zero,
-    this.volume = 100.0,
-    this.brightness = 0.5,
-    this.playbackSpeed = 1.0,
-    this.fitMode = FitMode.contain,
-    this.audioTracks = const [],
-    this.selectedAudioTrack,
-    this.swipeGesture = SwipeGesture.none,
-    this.swipeValue = 0,
-    this.folderVideos = const [],
-    this.currentIndex = -1,
-    this.subtitleTracks = const [],
-    this.selectedSubtitleTrack,
-    this.subtitlesEnabled = true,
-    this.isLocked = false,
-    this.lockIconVisible = false,
-    this.hasError = false,
-    this.errorMessage,
-    this.autoPlayCountdown,
-    this.zoomScale = 1.0,
-    this.loopMode = LoopMode.none,
-  });
+  const factory PlayerState({
+    @Default(false) bool isInitialized,
+    @Default(false) bool isPlaying,
+    @Default(true) bool controlsVisible,
+    @Default(RotationMode.auto) RotationMode rotationMode,
+    @Default(false) bool isSeeking,
+    @Default(0.0) double seekValue,
+    @Default(Duration.zero) Duration position,
+    @Default(Duration.zero) Duration duration,
+    @Default(100.0) double volume,
+    @Default(0.5) double brightness,
+    @Default(1.0) double playbackSpeed,
+    @Default(FitMode.contain) FitMode fitMode,
+    @Default([]) List<AudioTrack> audioTracks,
+    AudioTrack? selectedAudioTrack,
+    @Default(SwipeGesture.none) SwipeGesture swipeGesture,
+    @Default(0.0) double swipeValue,
+    @Default([]) List<VideoFile> folderVideos,
+    @Default(-1) int currentIndex,
+    @Default([]) List<SubtitleTrack> subtitleTracks,
+    SubtitleTrack? selectedSubtitleTrack,
+    @Default(true) bool subtitlesEnabled,
+    @Default(false) bool isLocked,
+    @Default(false) bool lockIconVisible,
+    @Default(false) bool hasError,
+    String? errorMessage,
+    int? autoPlayCountdown,
+    @Default(1.0) double zoomScale,
+    @Default(LoopMode.none) LoopMode loopMode,
+  }) = _PlayerState;
 
   double get progress => duration.inMilliseconds > 0
       ? (isSeeking
@@ -134,72 +103,6 @@ class PlayerState {
 
   VideoFile? get nextVideo =>
       hasNext ? folderVideos[currentIndex + 1] : null;
-
-  PlayerState copyWith({
-    bool? isInitialized,
-    bool? isPlaying,
-    bool? controlsVisible,
-    RotationMode? rotationMode,
-    bool? isSeeking,
-    double? seekValue,
-    Duration? position,
-    Duration? duration,
-    double? volume,
-    double? brightness,
-    double? playbackSpeed,
-    FitMode? fitMode,
-    List<AudioTrack>? audioTracks,
-    AudioTrack? selectedAudioTrack,
-    SwipeGesture? swipeGesture,
-    double? swipeValue,
-    List<VideoFile>? folderVideos,
-    int? currentIndex,
-    List<SubtitleTrack>? subtitleTracks,
-    SubtitleTrack? selectedSubtitleTrack,
-    bool? subtitlesEnabled,
-    bool? isLocked,
-    bool? lockIconVisible,
-    bool? hasError,
-    String? errorMessage,
-    int? autoPlayCountdown,
-    double? zoomScale,
-    LoopMode? loopMode,
-    // Sentinel to allow explicitly nulling autoPlayCountdown
-    bool clearAutoPlay = false,
-    bool clearError = false,
-  }) =>
-      PlayerState(
-        isInitialized: isInitialized ?? this.isInitialized,
-        isPlaying: isPlaying ?? this.isPlaying,
-        controlsVisible: controlsVisible ?? this.controlsVisible,
-        rotationMode: rotationMode ?? this.rotationMode,
-        isSeeking: isSeeking ?? this.isSeeking,
-        seekValue: seekValue ?? this.seekValue,
-        position: position ?? this.position,
-        duration: duration ?? this.duration,
-        volume: volume ?? this.volume,
-        brightness: brightness ?? this.brightness,
-        playbackSpeed: playbackSpeed ?? this.playbackSpeed,
-        fitMode: fitMode ?? this.fitMode,
-        audioTracks: audioTracks ?? this.audioTracks,
-        selectedAudioTrack: selectedAudioTrack ?? this.selectedAudioTrack,
-        swipeGesture: swipeGesture ?? this.swipeGesture,
-        swipeValue: swipeValue ?? this.swipeValue,
-        folderVideos: folderVideos ?? this.folderVideos,
-        currentIndex: currentIndex ?? this.currentIndex,
-        subtitleTracks: subtitleTracks ?? this.subtitleTracks,
-        selectedSubtitleTrack:
-            selectedSubtitleTrack ?? this.selectedSubtitleTrack,
-        subtitlesEnabled: subtitlesEnabled ?? this.subtitlesEnabled,
-        isLocked: isLocked ?? this.isLocked,
-        lockIconVisible: lockIconVisible ?? this.lockIconVisible,
-        hasError: clearError ? false : (hasError ?? this.hasError),
-        errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
-        autoPlayCountdown:
-            clearAutoPlay ? null : (autoPlayCountdown ?? this.autoPlayCountdown),
-        zoomScale: zoomScale ?? this.zoomScale,
-        loopMode: loopMode ?? this.loopMode,
-      );
 }
 
 // ── Notifier ──────────────────────────────────────────────────────────────────
@@ -416,7 +319,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
       countdown--;
       if (countdown <= 0) {
         t.cancel();
-        state = state.copyWith(clearAutoPlay: true);
+        state = state.copyWith(autoPlayCountdown: null);
         playNext();
       } else {
         state = state.copyWith(autoPlayCountdown: countdown);
@@ -426,7 +329,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void cancelAutoPlay() {
     _autoPlayTimer?.cancel();
-    state = state.copyWith(clearAutoPlay: true);
+    state = state.copyWith(autoPlayCountdown: null);
   }
 
   // ── Next / Previous ────────────────────────────────────────────────────────
@@ -455,8 +358,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
       position: Duration.zero,
       duration: Duration.zero,
       isSeeking: false,
-      clearAutoPlay: true,
-      clearError: true,
+      autoPlayCountdown: null,
+      hasError: false,
+      errorMessage: null,
       zoomScale: 1.0, // reset zoom on video switch
     );
 
