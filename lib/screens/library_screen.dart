@@ -225,21 +225,33 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       return PermissionPrompt(onRetry: _checkPermissionsAndLoad);
     }
 
-    final state = ref.watch(foldersProvider);
+    final (:folders, :isScanning, :fromCache, :storageRoots, :newPaths) =
+        ref.watch(foldersProvider.select((s) => (
+              folders: s.folders,
+              isScanning: s.isScanning,
+              fromCache: s.fromCache,
+              storageRoots: s.storageRoots,
+              newPaths: s.newPaths,
+            )));
 
-    if (state.isScanning && state.folders.isEmpty) {
-      return ScanningScreen(
-          progress: state.scanProgress,
-          storageCount: state.storageRoots.length);
+    if (isScanning && folders.isEmpty) {
+      return Consumer(
+        builder: (context, ref, _) {
+          final progress =
+              ref.watch(foldersProvider.select((s) => s.scanProgress));
+          return ScanningScreen(
+              progress: progress, storageCount: storageRoots.length);
+        },
+      );
     }
-    if (!state.isScanning && state.folders.isEmpty) {
+    if (!isScanning && folders.isEmpty) {
       return EmptyLibrary(
           onScan: () =>
               ref.read(foldersProvider.notifier).load(forceScan: true));
     }
 
-    final allFolders = state.folders;
-    final hasMultiStorage = state.storageRoots.length > 1;
+    final allFolders = folders;
+    final hasMultiStorage = storageRoots.length > 1;
 
     // _lastFoldersLoaded guard removed — resume data is now loaded lazily
     // inside itemBuilder via _ensureResumeLoaded().
@@ -252,13 +264,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         LibraryHeader(
           folderCount: allFolders.length,
           filteredCount: _searchQuery.isNotEmpty ? displayFolders.length : null,
-          storageCount: hasMultiStorage ? state.storageRoots.length : null,
-          isScanning: state.isScanning,
-          fromCache: state.fromCache,
+          storageCount: hasMultiStorage ? storageRoots.length : null,
+          isScanning: isScanning,
+          fromCache: fromCache,
           searchOpen: _searchOpen,
           searchCtrl: _searchCtrl,
           onToggleSearch: _toggleSearch,
-          onRescan: state.isScanning
+          onRescan: isScanning
               ? null
               : () => ref.read(foldersProvider.notifier).load(forceScan: true),
         ),
@@ -285,7 +297,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                       final isExternal = hasMultiStorage &&
                           !folder.path.contains('/emulated/');
                       // newPaths already watched above — no extra select needed.
-                      final isNew = state.newPaths.contains(folder.path);
+                      final isNew = newPaths.contains(folder.path);
                       return FolderCard(
                         folder: folder,
                         isExternal: isExternal,
