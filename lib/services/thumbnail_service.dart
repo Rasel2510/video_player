@@ -125,4 +125,14 @@ class ThumbnailService {
       }
     } catch (_) {}
   }
+
+  /// Removes the cached thumbnail for a single video from memory and disk.
+  Future<void> removeThumbnail(String videoPath) async {
+    _resolved.remove(videoPath);
+    _inFlight.remove(videoPath);
+    try {
+      final cacheFile = await _cacheFileFor(videoPath);
+      if (await cacheFile.exists()) await cacheFile.delete();
+    } catch (_) {}
+  }
 }
