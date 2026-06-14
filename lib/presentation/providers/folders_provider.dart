@@ -431,6 +431,30 @@ class FoldersNotifier extends Notifier<FoldersState> {
     } catch (_) {}
   }
 
+  // ── Remove a single video from state (no rescan needed) ────────────────
+
+  /// Surgically removes a video from the in-memory state and persists the
+  /// updated folder list to cache. Avoids an expensive full filesystem rescan.
+  void removeVideo(String videoPath) {
+    final updatedFolders = state.folders
+        .map((folder) {
+          final updatedVideos =
+              folder.videos.where((v) => v.path != videoPath).toList();
+          return VideoFolder(path: folder.path, videos: updatedVideos);
+        })
+        .where((f) => f.videos.isNotEmpty)
+        .toList();
+
+    final updatedNewPaths = Set<String>.from(state.newPaths)
+      ..remove(videoPath);
+
+    state = state.copyWith(folders: updatedFolders, newPaths: updatedNewPaths);
+
+    // Persist the updated folder list so the next cold start reflects the
+    // deletion without needing a rescan.
+    _saveCache(updatedFolders);
+  }
+
   void reset() => state = const FoldersState();
 }
 

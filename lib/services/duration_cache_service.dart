@@ -157,6 +157,15 @@ class DurationCacheService {
     await _cache(videoPath, duration);
   }
 
+  /// Removes the cached duration for a single video from memory and disk.
+  Future<void> removeDuration(String videoPath) async {
+    _memCache.remove(videoPath);
+    _probeInFlight.remove(videoPath);
+    try {
+      await (await _p).remove(_key(videoPath));
+    } catch (_) {}
+  }
+
   Future<List<VideoFile>> enrichAll(List<VideoFile> files) async {
     final p = await _p;
     return files.map((vf) {

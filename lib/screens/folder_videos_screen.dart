@@ -12,6 +12,7 @@ import '../services/duration_cache_service.dart';
 import '../services/player_preferences_service.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
+import '../services/thumbnail_service.dart';
 import '../presentation/widgets/folder_videos/no_results.dart';
 import '../presentation/widgets/folder_videos/resume_fab.dart';
 import '../presentation/widgets/folder_videos/sort_option.dart';
@@ -310,14 +311,23 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
       // Ignore — file may already be gone or on read-only storage.
     }
 
-    await PositionService.instance.clear(vf.path);
+    // Clean up all cached data for this video — no full rescan needed.
+    await Future.wait([
+      PositionService.instance.clear(vf.path),
+      ThumbnailService.instance.removeThumbnail(vf.path),
+      DurationCacheService.instance.removeDuration(vf.path),
+    ]);
 
     // FIX: remove from local list and invalidate sort cache.
     setState(() {
       _deletedPaths.add(vf.path);
       _positions.remove(vf.path);
+      _durations.remove(vf.path);
       _sortedCache = null; // force re-sort
     });
+
+    // Surgically remove video from provider state + update disk cache.
+    ref.read(foldersProvider.notifier).removeVideo(vf.path);
 
     // FIX: pop back to library if every video in the folder has been deleted.
     final remaining = widget.folder.videos
@@ -326,9 +336,6 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     if (remaining == 0 && mounted) {
       Navigator.pop(context);
     }
-
-    // Trigger background library rescan so folder counts update.
-    ref.read(foldersProvider.notifier).load(forceScan: true);
   }
 
   // ── Sort picker ────────────────────────────────────────────────────────────
