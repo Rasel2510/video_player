@@ -57,11 +57,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _notifier.init(
-            widget.filePath,
-            resumeFrom: widget.resumeFrom,
-            folderVideos: widget.folderVideos,
-            initialIndex: widget.initialIndex,
-          );
+        widget.filePath,
+        resumeFrom: widget.resumeFrom,
+        folderVideos: widget.folderVideos,
+        initialIndex: widget.initialIndex,
+      );
     });
   }
 
@@ -157,8 +157,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   // Const map avoids a switch allocation on every video Consumer rebuild.
   static const _fitBoxMap = {
     FitMode.contain: BoxFit.contain,
-    FitMode.cover:   BoxFit.cover,
-    FitMode.fill:    BoxFit.fill,
+    FitMode.cover: BoxFit.cover,
+    FitMode.fill: BoxFit.fill,
     FitMode.natural: BoxFit.scaleDown,
   };
   BoxFit _boxFit(FitMode mode) => _fitBoxMap[mode] ?? BoxFit.contain;
@@ -182,9 +182,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             // and therefore never re-composites the Video platform view.
             final (:isLocked, :controlsVisible) =
                 ref.watch(playerProvider.select((s) => (
-                  isLocked: s.isLocked,
-                  controlsVisible: s.controlsVisible,
-                )));
+                      isLocked: s.isLocked,
+                      controlsVisible: s.controlsVisible,
+                    )));
 
             return Stack(
               children: [
@@ -246,14 +246,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               // ── Video ──────────────────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
-                  final (:isInitialized, :fitMode, :zoomScale, :hasError, errorMsg: errorMsg) =
-                      ref.watch(playerProvider.select((s) => (
-                            isInitialized: s.isInitialized,
-                            fitMode:       s.fitMode,
-                            zoomScale:     s.zoomScale,
-                            hasError:      s.hasError,
-                            errorMsg:      s.errorMessage,
-                          )));
+                  final (
+                    :isInitialized,
+                    :fitMode,
+                    :zoomScale,
+                    :hasError,
+                    errorMsg: errorMsg
+                  ) = ref.watch(playerProvider.select((s) => (
+                        isInitialized: s.isInitialized,
+                        fitMode: s.fitMode,
+                        zoomScale: s.zoomScale,
+                        hasError: s.hasError,
+                        errorMsg: s.errorMessage,
+                      )));
 
                   if (hasError) {
                     return ErrorState(
@@ -310,7 +315,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   final (:gesture, :value) =
                       ref.watch(playerProvider.select((s) => (
                             gesture: s.swipeGesture,
-                            value:   s.swipeValue,
+                            value: s.swipeValue,
                           )));
                   if (gesture == SwipeGesture.none) return const SizedBox();
                   return SwipeHud(gesture: gesture, value: value);
@@ -325,7 +330,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                             countdown: s.autoPlayCountdown,
                             nextVideo: s.nextVideo,
                           )));
-                  if (countdown == null || nextVideo == null) return const SizedBox();
+                  if (countdown == null || nextVideo == null) {
+                    return const SizedBox();
+                  }
                   return AutoPlayCountdown(
                     countdown: countdown,
                     nextVideoName: nextVideo.name,
@@ -343,15 +350,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               // ── Controls overlay ───────────────────────────────────────
               Consumer(
                 builder: (context, ref, _) {
-                  final (:isInitialized, :hasError, :isLocked,
-                          :controlsVisible, :currentVideo) =
-                      ref.watch(playerProvider.select((s) => (
-                            isInitialized:   s.isInitialized,
-                            hasError:        s.hasError,
-                            isLocked:        s.isLocked,
-                            controlsVisible: s.controlsVisible,
-                            currentVideo:    s.currentVideo,
-                          )));
+                  final (
+                    :isInitialized,
+                    :hasError,
+                    :isLocked,
+                    :controlsVisible,
+                    :currentVideo
+                  ) = ref.watch(playerProvider.select((s) => (
+                        isInitialized: s.isInitialized,
+                        hasError: s.hasError,
+                        isLocked: s.isLocked,
+                        controlsVisible: s.controlsVisible,
+                        currentVideo: s.currentVideo,
+                      )));
                   if (!isInitialized || hasError) return const SizedBox();
                   final displayName = currentVideo?.name ?? widget.fileName;
                   final notifier = ref.read(playerProvider.notifier);
@@ -373,36 +384,36 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   final child = IgnorePointer(
                     ignoring: !visible,
                     child: PlayerControlsOverlay(
-                        fileName: displayName,
-                        onBack: () => Navigator.pop(context),
-                        onTogglePlay: notifier.togglePlay,
-                        onCycleFitMode: notifier.cycleFitMode,
-                        onShowSpeed: () => _showSpeedSheet(
-                            context, ref.read(playerProvider).playbackSpeed),
-                        onShowVolume: () => _showVolumeSheet(
-                            context, ref.read(playerProvider).volume),
-                        onShowAudio: () => _showAudioTrackSheet(context),
-                        onShowSubtitle: () => _showSubtitleSheet(context),
-                        onSeekBack: () => notifier.seekRelative(-10),
-                        onSeekForward: () => notifier.seekRelative(10),
-                        onToggleFullscreen: notifier.cycleRotationMode,
-                        onSeekStart: notifier.beginSeek,
-                        onSeekUpdate: notifier.updateSeek,
-                        onSeekEnd: notifier.endSeek,
-                        onPlayNext: notifier.playNext,
-                        onPlayPrevious: notifier.playPrevious,
-                        onToggleLock: () {
-                          // When locking: show the lock icon locally so the
-                          // user knows the screen is now locked, then auto-hide.
-                          // When unlocking: the LockOverlay.onUnlock callback
-                          // already called _hideLockIconLocal + toggleLock.
-                          final willLock = !ref.read(playerProvider).isLocked;
-                          notifier.toggleLock();
-                          if (willLock) _showLockIconLocal();
-                        },
-                        onToggleRepeat: notifier.cycleLoopMode,
-                      ),
-                    );
+                      fileName: displayName,
+                      onBack: () => Navigator.pop(context),
+                      onTogglePlay: notifier.togglePlay,
+                      onCycleFitMode: notifier.cycleFitMode,
+                      onShowSpeed: () => _showSpeedSheet(
+                          context, ref.read(playerProvider).playbackSpeed),
+                      onShowVolume: () => _showVolumeSheet(
+                          context, ref.read(playerProvider).volume),
+                      onShowAudio: () => _showAudioTrackSheet(context),
+                      onShowSubtitle: () => _showSubtitleSheet(context),
+                      onSeekBack: () => notifier.seekRelative(-10),
+                      onSeekForward: () => notifier.seekRelative(10),
+                      onToggleFullscreen: notifier.cycleRotationMode,
+                      onSeekStart: notifier.beginSeek,
+                      onSeekUpdate: notifier.updateSeek,
+                      onSeekEnd: notifier.endSeek,
+                      onPlayNext: notifier.playNext,
+                      onPlayPrevious: notifier.playPrevious,
+                      onToggleLock: () {
+                        // When locking: show the lock icon locally so the
+                        // user knows the screen is now locked, then auto-hide.
+                        // When unlocking: the LockOverlay.onUnlock callback
+                        // already called _hideLockIconLocal + toggleLock.
+                        final willLock = !ref.read(playerProvider).isLocked;
+                        notifier.toggleLock();
+                        if (willLock) _showLockIconLocal();
+                      },
+                      onToggleRepeat: notifier.cycleLoopMode,
+                    ),
+                  );
                   return AnimatedOpacity(
                     opacity: visible ? 1.0 : 0.0,
                     // Fade-in when showing; instant (0 ms) when hiding so there
@@ -421,7 +432,3 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 }
-
-
-
-
