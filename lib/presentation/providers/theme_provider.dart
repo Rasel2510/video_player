@@ -30,4 +30,4 @@ class ThemeNotifier extends StateNotifier<ThemeMode> {
       await setTheme(ThemeMode.dark);
     }
   }
-}
+} 
