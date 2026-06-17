@@ -6,6 +6,24 @@ class MediaSessionService {
   // FIX #14: use the shared constant instead of a duplicate string literal
   static const _channel = MethodChannel(AppConstants.mediaSessionChannel);
 
+  /// Registers the handler for lock-screen / notification button presses
+  /// (play, pause, next, previous) and scrubber seeks dispatched from
+  /// MainActivity's MediaSessionCompat.Callback. Overwrites any previous
+  /// handler — the channel only ever has one consumer (the active player).
+  static void setActionHandler({
+    required void Function(String action) onAction,
+    required void Function(Duration position) onSeek,
+  }) {
+    _channel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'onMediaAction':
+          onAction(call.arguments as String);
+        case 'onMediaSeek':
+          onSeek(Duration(milliseconds: call.arguments as int));
+      }
+    });
+  }
+
   static Future<void> setMetadata({
     required String title,
     required Duration duration,

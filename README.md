@@ -37,31 +37,6 @@ lib/
 │   ├── video_file.dart                # VideoFile data model (path, size, modified…)
 │   └── video_folder.dart              # VideoFolder data model (path, videos list…)
 │
-├── domain/
-│   ├── entities/
-│   │   ├── video_entity.dart
-│   │   └── folder_contents_entity.dart
-│   ├── repositories/
-│   │   ├── video_repository.dart
-│   │   └── recent_repository.dart
-│   └── usecases/
-│       ├── scan_directory_usecase.dart
-│       ├── list_directory_usecase.dart
-│       ├── pick_directory_usecase.dart
-│       ├── pick_video_usecase.dart
-│       ├── get_recents_usecase.dart
-│       ├── add_recent_usecase.dart
-│       ├── remove_recent_usecase.dart
-│       └── clear_recents_usecase.dart
-│
-├── data/
-│   ├── datasources/
-│   │   ├── video_local_datasource.dart
-│   │   └── recent_local_datasource.dart
-│   └── repositories/
-│       ├── video_repository_impl.dart
-│       └── recent_repository_impl.dart
-│
 ├── services/
 │   ├── folder_scanner.dart            # Isolate-based background file-system scanner
 │   ├── thumbnail_service.dart         # Async thumbnail generation + LRU cache
@@ -77,18 +52,10 @@ lib/
 │   ├── providers/                     # Riverpod state providers
 │   │   ├── folders_provider.dart      # Folder scan state (FoldersNotifier)
 │   │   ├── player_provider.dart       # Player state (PlayerNotifier / media_kit)
-│   │   ├── recents_provider.dart      # Recent-files state
-│   │   ├── library_provider.dart      # Library-level state
-│   │   ├── browser_provider.dart      # File-browser state
-│   │   ├── theme_provider.dart        # Light/dark theme toggle
-│   │   └── dependency_providers.dart  # Service / repo injection providers
+│   │   └── theme_provider.dart        # Light/dark theme toggle
 │   │
 │   └── widgets/
 │       ├── thumbnail_widget.dart      # Async thumbnail with shimmer fallback
-│       ├── empty_state.dart           # Generic empty-state placeholder
-│       ├── folder_tile.dart           # Shared folder tile widget
-│       ├── video_tile.dart            # Shared video tile widget
-│       ├── recent_tile.dart           # Recent-files tile widget
 │       ├── resume_dialog.dart         # Resume-or-restart dialog
 │       │
 │       ├── player/                    # Player screen sub-widgets
@@ -127,10 +94,9 @@ lib/
 │           └── no_results.dart        # Empty search result view
 │
 └── screens/                           # Full screens (state + layout wiring only)
-    ├── home_screen.dart               # Bottom-nav shell (Library / Recents / Browse)
+    ├── home_screen.dart               # App bar shell (theme toggle, file picker) + LibraryScreen body
     ├── library_screen.dart            # Folder library with scan & search
     ├── folder_videos_screen.dart      # Video list for a specific folder
-    ├── folder_browser_screen.dart     # Manual directory browser
     └── player_screen.dart             # Full-screen video player
 ```
 
@@ -145,9 +111,7 @@ UI (screens + widgets)
        ↕
 Presentation (Riverpod providers)
        ↕
-Services  ←→  Domain (use-cases / repositories)
-       ↕
-Data (local datasources — file system, SharedPreferences)
+Services (file system, SharedPreferences, platform channels)
 ```
 
 - **State management**: [Riverpod](https://riverpod.dev/) (`ConsumerStatefulWidget` for screens, `StateNotifierProvider` for business state)

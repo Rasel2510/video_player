@@ -3,11 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:path/path.dart' as p;
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../models/video_file.dart';
 import '../../services/brightness_service.dart';
 import '../../services/duration_cache_service.dart';
+import '../../services/media_session_service.dart';
 import '../../services/player_preferences_service.dart';
 import '../../services/position_service.dart';
 import '../../services/volume_service.dart';
@@ -126,6 +128,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
   // Guards against notification panel callbacks after dispose begins.
   bool _isDisposing = false;
 
+  // Throttles lock-screen playback-state syncs to ~1/s — position updates
+  // fire several times a second and each sync rebuilds + reposts the
+  // Android notification on the native side.
+  DateTime? _lastMediaSessionSync;
+
   @override
   PlayerState build() => const PlayerState();
 
@@ -206,9 +213,18 @@ class PlayerNotifier extends Notifier<PlayerState> {
       }
     });
 
+    // Lock-screen / notification controls. setActionHandler overwrites any
+    // previous handler — same single-slot semantics as VolumeService above —
+    // so a re-entrant init() doesn't leak handlers from a prior video.
+    MediaSessionService.setActionHandler(
+      onAction: _handleMediaAction,
+      onSeek: (pos) => _player?.seek(pos),
+    );
+
     _listenStreams(onReady: () {
       state = state.copyWith(isInitialized: true);
       _startHideTimer();
+      _syncMediaSessionMetadata();
       if (resumeFrom != null && resumeFrom > Duration.zero) {
         Future.delayed(const Duration(milliseconds: 300), () {
           _player?.seek(resumeFrom);
@@ -239,6 +255,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
         // Paused by user or end-of-file — persist position immediately.
         _savePosition();
       }
+      _syncMediaSessionPlaybackState();
     }));
 
     _subs.add(_player!.stream.position.listen((v) {
@@ -246,6 +263,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
       // Throttled periodic save (3-second debounce).
       _saveTimer?.cancel();
       _saveTimer = Timer(const Duration(seconds: 3), _savePosition);
+      _syncMediaSessionPlaybackState(throttle: true);
     }));
 
     _subs.add(_player!.stream.duration.listen((v) {
@@ -254,10 +272,13 @@ class PlayerNotifier extends Notifier<PlayerState> {
       if (_currentPath != null) {
         DurationCacheService.instance.saveDuration(_currentPath!, v);
       }
+      _syncMediaSessionMetadata();
     }));
 
-    _subs.add(_player!.stream.rate
-        .listen((v) => state = state.copyWith(playbackSpeed: v)));
+    _subs.add(_player!.stream.rate.listen((v) {
+      state = state.copyWith(playbackSpeed: v);
+      _syncMediaSessionPlaybackState();
+    }));
 
     _subs.add(_player!.stream.tracks.listen((v) {
       final subs =
@@ -306,6 +327,46 @@ class PlayerNotifier extends Notifier<PlayerState> {
     if (_currentPath == null) return;
     await PositionService.instance
         .save(_currentPath!, state.position, state.duration);
+  }
+
+  // ── Lock-screen media session ─────────────────────────────────────────────
+
+  void _handleMediaAction(String action) {
+    if (_isDisposing || _player == null) return;
+    switch (action) {
+      case 'play':
+        _player!.play();
+      case 'pause':
+        _player!.pause();
+      case 'next':
+        playNext();
+      case 'previous':
+        playPrevious();
+    }
+  }
+
+  void _syncMediaSessionMetadata() {
+    if (_isDisposing) return;
+    final title = state.currentVideo?.name ??
+        (_currentPath != null ? p.basename(_currentPath!) : '');
+    MediaSessionService.setMetadata(title: title, duration: state.duration);
+  }
+
+  void _syncMediaSessionPlaybackState({bool throttle = false}) {
+    if (_isDisposing) return;
+    if (throttle) {
+      final now = DateTime.now();
+      if (_lastMediaSessionSync != null &&
+          now.difference(_lastMediaSessionSync!) < const Duration(seconds: 1)) {
+        return;
+      }
+      _lastMediaSessionSync = now;
+    }
+    MediaSessionService.setPlaybackState(
+      isPlaying: state.isPlaying,
+      position: state.position,
+      speed: state.playbackSpeed,
+    );
   }
 
   // ── Auto-play countdown ────────────────────────────────────────────────────
@@ -372,6 +433,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _listenStreams(onReady: () {
       state = state.copyWith(isInitialized: true);
       _startHideTimer();
+      _syncMediaSessionMetadata();
     });
 
     // Configure player properties in parallel before opening the file.
@@ -649,6 +711,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   Future<void> dispose() async {
+    // PlayerScreen calls this from both PopScope (so orientation/system UI
+    // resets before the pop transition) and State.dispose() (safety net for
+    // non-pop removal e.g. pushReplacement). Guard so the second call is a
+    // no-op instead of redoing every platform-channel reset.
+    if (_isDisposing) return;
     _isDisposing = true;
     _autoPlayTimer?.cancel();
     VolumeService.instance.removeListener();
@@ -664,6 +731,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     // cannot fire concurrently and hit a null _player.
     _saveTimer?.cancel();
     await _savePosition();
+    await MediaSessionService.release();
     _disposeInternal();
     state = const PlayerState();
 

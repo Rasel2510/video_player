@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:media_kit/media_kit.dart';
+import '../core/utils/cache_key.dart';
 import '../models/video_file.dart';
 
 /// Probes and caches video duration using media_kit's Player.
@@ -21,12 +22,7 @@ class DurationCacheService {
 
   static const _prefix = 'dur_v2_';
 
-  static final _sanitiseRe = RegExp(r'[^a-zA-Z0-9._\-]');
-
-  static String _key(String videoPath) {
-    final sanitised = videoPath.replaceAll(_sanitiseRe, '_');
-    return '$_prefix$sanitised';
-  }
+  static String _key(String videoPath) => '$_prefix${CacheKey.sanitise(videoPath)}';
 
   // ── In-memory duration cache (current session) ────────────────────────────
   // Avoids repeated SharedPreferences reads for the same path in one session.
