@@ -1,15 +1,8 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/utils/cache_key.dart';
 import 'duration_cache_service.dart';
 
 /// Saves and restores the last playback position for each video file.
-///
-/// FIX #OPT-9 / latent bug: _sanitiseRe was referenced but never defined in
-/// this file.  Added the definition here.  The key strategy (full sanitised
-/// path) is intentional and consistent with DurationCacheService — it avoids
-/// hash collisions at the cost of slightly longer key strings, which is an
-/// acceptable trade-off given typical Android path lengths (~60–90 chars after
-/// sanitisation) and that SharedPreferences stores keys as XML on Android with
-/// no documented length constraint.
 class PositionService {
   PositionService._();
   static final PositionService instance = PositionService._();
@@ -23,15 +16,7 @@ class PositionService {
   static const _minSaveMs = 5000;
   static const _nearEndMs = 5000;
 
-  // Compiled once — replaces any character that is not alphanumeric, dot,
-  // underscore, or hyphen with '_'.  Same pattern as ThumbnailService and
-  // DurationCacheService so all three services produce identical path keys.
-  static final _sanitiseRe = RegExp(r'[^a-zA-Z0-9._\-]');
-
-  static String _key(String videoPath) {
-    final sanitised = videoPath.replaceAll(_sanitiseRe, '_');
-    return '$_prefix$sanitised';
-  }
+  static String _key(String videoPath) => '$_prefix${CacheKey.sanitise(videoPath)}';
 
   Future<void> save(String videoPath, Duration position, Duration duration) async {
     final ms      = position.inMilliseconds;

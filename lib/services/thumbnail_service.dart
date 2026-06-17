@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
+import '../core/utils/cache_key.dart';
 
 /// Generates and caches video thumbnails to disk.
 ///
@@ -52,8 +53,6 @@ class ThumbnailService {
 
   // Eagerly initialized — avoids getTemporaryDirectory() cost on first call.
   late final Future<Directory> _cacheDir = _initCacheDir();
-
-  static final _sanitiseRe = RegExp(r'[^a-zA-Z0-9._\-]');
 
   static Future<Directory> _initCacheDir() async {
     final base = await getApplicationSupportDirectory();
@@ -109,7 +108,7 @@ class ThumbnailService {
 
   Future<File> _cacheFileFor(String videoPath) async {
     final dir = await _cacheDir;
-    final sanitised = videoPath.replaceAll(_sanitiseRe, '_');
+    final sanitised = CacheKey.sanitise(videoPath);
     return File(p.join(dir.path, '$sanitised.jpg'));
   }
 
