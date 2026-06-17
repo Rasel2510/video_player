@@ -76,8 +76,7 @@ class AudioTrackSheet extends StatelessWidget {
                 itemCount: tracks.length,
                 itemBuilder: (context, index) {
                   final track = tracks[index];
-                  final isSelected = track == selectedTrack ||
-                      (selectedTrack == null && index == 0);
+                  final isSelected = index == _selectedIndex();
 
                   return InkWell(
                     onTap: () {
@@ -127,6 +126,16 @@ class AudioTrackSheet extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Index of the row to highlight. media_kit may report the active track as
+  /// the synthetic 'auto' entry (which we strip from the list) before resolving
+  /// it to a concrete track, so when the reported track isn't in the list we
+  /// fall back to the first track — that's what's actually playing.
+  int _selectedIndex() {
+    final id = selectedTrack?.id;
+    final i = tracks.indexWhere((t) => t.id == id);
+    return i < 0 ? 0 : i;
   }
 
   String _getTrackLabel(AudioTrack track, int index, int total) {
