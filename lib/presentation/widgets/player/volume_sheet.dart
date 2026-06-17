@@ -29,8 +29,13 @@ class _VolumeSheetState extends State<VolumeSheet> {
 
   bool get _isBoosted => _volume > 100.0;
 
-  Color _accent(BuildContext context) =>
-      _isBoosted ? _boostColor : context.colors.accent;
+  // Blue at ≤100 %, shifting toward orange the further past 100 % the volume
+  // is pushed (fully orange at 200 %) — matches the swipe HUD gauge.
+  Color _accent(BuildContext context) {
+    if (!_isBoosted) return context.colors.accent;
+    final t = ((_volume - 100.0) / 100.0).clamp(0.0, 1.0);
+    return Color.lerp(context.colors.accent, _boostColor, t)!;
+  }
 
   Color _accentSoft(BuildContext context) =>
       _isBoosted ? _boostColorSoft : context.colors.accentSoft;

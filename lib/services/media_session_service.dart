@@ -27,11 +27,15 @@ class MediaSessionService {
   static Future<void> setMetadata({
     required String title,
     required Duration duration,
+    String? artPath,
   }) async {
     try {
       await _channel.invokeMethod('setMetadata', {
         'title': title,
         'duration': duration.inMilliseconds,
+        // Absolute path to the video's thumbnail jpeg, shown as lock-screen
+        // album art. Null when no thumbnail has been generated yet.
+        'artPath': artPath,
       });
     } catch (_) {}
   }

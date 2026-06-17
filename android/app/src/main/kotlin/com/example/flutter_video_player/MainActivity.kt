@@ -1,12 +1,17 @@
 package com.example.flutter_video_player
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.support.v4.media.MediaMetadataCompat
-import androidx.media.session.MediaButtonReceiver
+import androidx.core.content.ContextCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
@@ -18,19 +23,25 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
 
     private val CHANNEL = "com.example.flutter_video_player/media_session"
-    private val NOTIFICATION_ID = 1001
-    private val NOTIFICATION_CHANNEL_ID = "nova_player_playback"
+    private val NOTIFICATION_CHANNEL_ID = "video_player_playback"
 
     private var mediaSession: MediaSessionCompat? = null
     private var methodChannel: MethodChannel? = null
 
     private var isPlaying = false
-    private var videoTitle = "Nova Player"
+    private var videoTitle = "Video Player"
+
+    // Lock-screen / notification album art (the current video's thumbnail),
+    // cached so we only decode the file when its path actually changes.
+    private var albumArt: Bitmap? = null
+    private var albumArtPath: String? = null
 
     // ── Flutter engine setup ──────────────────────────────────────────────────
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // Lets MediaActionReceiver forward notification-button taps back to us.
+        activeInstance = this
         createNotificationChannel()
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
@@ -39,15 +50,18 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
 
                 "setMetadata" -> {
-                    videoTitle = call.argument<String>("title")?.takeIf { it.isNotBlank() } ?: "Nova Player"
+                    videoTitle = call.argument<String>("title")?.takeIf { it.isNotBlank() } ?: "Video Player"
                     val durationMs = call.argument<Int>("duration")?.toLong() ?: 0L
+                    loadAlbumArt(call.argument<String>("artPath"))
                     ensureSession()
-                    mediaSession?.setMetadata(
-                        MediaMetadataCompat.Builder()
-                            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, videoTitle)
-                            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs)
-                            .build()
-                    )
+                    val meta = MediaMetadataCompat.Builder()
+                        .putString(MediaMetadataCompat.METADATA_KEY_TITLE, videoTitle)
+                        .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs)
+                    albumArt?.let {
+                        meta.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
+                        meta.putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, it)
+                    }
+                    mediaSession?.setMetadata(meta.build())
                     mediaSession?.isActive = true
                     postNotification()
                     result.success(null)
@@ -59,6 +73,7 @@ class MainActivity : FlutterActivity() {
                     val speed = call.argument<Double>("speed")?.toFloat() ?: 1.0f
                     val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING
                                 else          PlaybackStateCompat.STATE_PAUSED
+                    ensureSession()
                     mediaSession?.setPlaybackState(
                         PlaybackStateCompat.Builder()
                             .setState(state, positionMs, speed)
@@ -96,7 +111,7 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
-                "Nova Player",
+                "Video Player",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Media playback controls"
@@ -106,12 +121,43 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // ── Album art ─────────────────────────────────────────────────────────────
+
+    private fun loadAlbumArt(path: String?) {
+        if (path == albumArtPath) return
+        albumArtPath = path
+        albumArt = if (path != null) {
+            try { BitmapFactory.decodeFile(path) } catch (e: Exception) { null }
+        } else {
+            null
+        }
+    }
+
     // ── Post / cancel media-style notification ────────────────────────────────
+    // Built here (MainActivity owns the MediaSession) and handed to the
+    // foreground PlaybackService, which keeps the process alive so playback
+    // survives the screen turning off / the app going to the background.
 
     private fun postNotification() {
-        val session = mediaSession ?: return
-
+        val notification = buildNotification() ?: return
+        val intent = Intent(this, PlaybackService::class.java).apply {
+            action = PlaybackService.ACTION_START
+            putExtra(PlaybackService.EXTRA_NOTIFICATION, notification)
+        }
         try {
+            ContextCompat.startForegroundService(this, intent)
+        } catch (e: Exception) {
+            // Background-start limits (Android 12+) can reject this; fall back
+            // to a plain notification so the controls still appear.
+            try {
+                notificationManager().notify(PlaybackService.NOTIFICATION_ID, notification)
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun buildNotification(): Notification? {
+        val session = mediaSession ?: return null
+        return try {
             val immutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
                 PendingIntent.FLAG_IMMUTABLE else 0
 
@@ -127,59 +173,48 @@ class MainActivity : FlutterActivity() {
                 PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag
             )
 
-            // FIX: Build media button PendingIntents manually with correct flags
-            // to avoid the FLAG_IMMUTABLE/FLAG_MUTABLE crash on Android 12+.
-            val prevPi = buildMediaButtonIntent(
-                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS, 1)
-            val playPausePi = buildMediaButtonIntent(
-                PlaybackStateCompat.ACTION_PLAY_PAUSE, 2)
-            val nextPi = buildMediaButtonIntent(
-                PlaybackStateCompat.ACTION_SKIP_TO_NEXT, 3)
+            // Route notification buttons through our own receiver, which
+            // forwards straight to Flutter.
+            val prevPi = buildActionIntent("previous", 1)
+            val playPausePi = buildActionIntent(if (isPlaying) "pause" else "play", 2)
+            val nextPi = buildActionIntent("next", 3)
 
-            val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause
-                                else          android.R.drawable.ic_media_play
+            // Crisp Material vector icons instead of the low-res android.R
+            // system media drawables.
+            val playPauseIcon = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
             val playPauseLabel = if (isPlaying) "Pause" else "Play"
 
-            val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
                 .setContentTitle(videoTitle)
                 .setContentText(if (isPlaying) "Playing" else "Paused")
-                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setSmallIcon(R.drawable.ic_stat_music)
+                .setLargeIcon(albumArt)
                 .setContentIntent(contentPi)
                 .setOngoing(isPlaying)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setSilent(true)
-                .addAction(android.R.drawable.ic_media_previous, "Previous", prevPi)
+                .addAction(R.drawable.ic_skip_previous, "Previous", prevPi)
                 .addAction(playPauseIcon, playPauseLabel, playPausePi)
-                .addAction(android.R.drawable.ic_media_next, "Next", nextPi)
+                .addAction(R.drawable.ic_skip_next, "Next", nextPi)
                 .setStyle(
                     MediaStyle()
                         .setMediaSession(session.sessionToken)
                         .setShowActionsInCompactView(0, 1, 2)
                 )
                 .build()
-
-            notificationManager().notify(NOTIFICATION_ID, notification)
         } catch (e: Exception) {
-            // Swallow notification posting failures — they must never crash the app.
+            null
         }
     }
 
-    // FIX: Build media button broadcast PendingIntents with explicit mutable/immutable
-    // flags (required on Android 12+ / API 31+). Using MediaButtonReceiver helper
-    // with older androidx.media could omit these flags and throw IllegalArgumentException.
-    private fun buildMediaButtonIntent(action: Long, requestCode: Int): PendingIntent {
-        val keyEvent = android.view.KeyEvent(
-            android.view.KeyEvent.ACTION_DOWN,
-            PlaybackStateCompat.toKeyCode(action).let {
-                if (it == android.view.KeyEvent.KEYCODE_UNKNOWN)
-                    android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
-                else it
-            }
-        )
-        val intent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
-            setClass(this@MainActivity, androidx.media.session.MediaButtonReceiver::class.java)
-            putExtra(Intent.EXTRA_KEY_EVENT, keyEvent)
+    // Build a notification-button PendingIntent that broadcasts to our own
+    // MediaActionReceiver with the action name ("play"/"pause"/"next"/
+    // "previous") — the same strings the Dart side already handles.
+    private fun buildActionIntent(action: String, requestCode: Int): PendingIntent {
+        val intent = Intent(this, MediaActionReceiver::class.java).apply {
+            this.action = MediaActionReceiver.ACTION
+            putExtra(MediaActionReceiver.EXTRA_ACTION, action)
         }
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
@@ -187,7 +222,14 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun cancelNotification() {
-        notificationManager().cancel(NOTIFICATION_ID)
+        try {
+            val intent = Intent(this, PlaybackService::class.java).apply {
+                action = PlaybackService.ACTION_STOP
+            }
+            startService(intent)
+        } catch (e: Exception) {
+            try { notificationManager().cancel(PlaybackService.NOTIFICATION_ID) } catch (_: Exception) {}
+        }
     }
 
     // ── MediaSessionCompat ────────────────────────────────────────────────────
@@ -208,7 +250,7 @@ class MainActivity : FlutterActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag
         )
 
-        mediaSession = MediaSessionCompat(this, "NovaPlayer").apply {
+        mediaSession = MediaSessionCompat(this, "VideoPlayer").apply {
             setSessionActivity(sessionActivityPi)
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay()            { dispatchToFlutter("play") }
@@ -243,6 +285,7 @@ class MainActivity : FlutterActivity() {
         mediaSession?.release()
         mediaSession = null
         methodChannel = null
+        if (activeInstance === this) activeInstance = null
         super.onDestroy()
     }
 
@@ -250,4 +293,28 @@ class MainActivity : FlutterActivity() {
 
     private fun notificationManager() =
         getSystemService(NotificationManager::class.java)
+
+    companion object {
+        // The currently-attached activity, used by MediaActionReceiver to
+        // forward notification-button taps back into the Flutter engine.
+        private var activeInstance: MainActivity? = null
+
+        fun dispatchMediaAction(action: String) {
+            activeInstance?.dispatchToFlutter(action)
+        }
+    }
+}
+
+// Receives notification-button broadcasts and forwards them to Flutter via the
+// active MainActivity. Declared (non-exported) in AndroidManifest.xml.
+class MediaActionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.getStringExtra(EXTRA_ACTION) ?: return
+        MainActivity.dispatchMediaAction(action)
+    }
+
+    companion object {
+        const val ACTION = "com.example.flutter_video_player.MEDIA_ACTION"
+        const val EXTRA_ACTION = "media_action"
+    }
 }

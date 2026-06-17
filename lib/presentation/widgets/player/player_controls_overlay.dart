@@ -36,6 +36,7 @@ class PlayerControlsOverlay extends StatelessWidget {
   final VoidCallback onPlayPrevious;
   final VoidCallback onToggleLock;
   final VoidCallback onToggleRepeat;
+  final VoidCallback onAudioMode;
 
   const PlayerControlsOverlay({
     super.key,
@@ -57,6 +58,7 @@ class PlayerControlsOverlay extends StatelessWidget {
     required this.onPlayPrevious,
     required this.onToggleLock,
     required this.onToggleRepeat,
+    required this.onAudioMode,
   });
 
   // FIX #OPT-12: Static const gradient widgets — these decorations never change
@@ -111,6 +113,7 @@ class PlayerControlsOverlay extends StatelessWidget {
                 onShowSubtitle: onShowSubtitle,
                 onToggleLock: onToggleLock,
                 onToggleRepeat: onToggleRepeat,
+                onAudioMode: onAudioMode,
               ),
               const Spacer(),
               _CenterControls(
@@ -150,6 +153,7 @@ class _TopBar extends ConsumerWidget {
   final VoidCallback onShowSubtitle;
   final VoidCallback onToggleLock;
   final VoidCallback onToggleRepeat;
+  final VoidCallback onAudioMode;
 
   const _TopBar({
     required this.fileName,
@@ -160,6 +164,7 @@ class _TopBar extends ConsumerWidget {
     required this.onShowSubtitle,
     required this.onToggleLock,
     required this.onToggleRepeat,
+    required this.onAudioMode,
   });
 
   @override
@@ -247,16 +252,22 @@ class _TopBar extends ConsumerWidget {
                 // Orange tint when volume is boosted
                 boosted: volume > 100,
               ),
-              // Audio track (only when multiple tracks exist)
-              if (hasMultipleAudio) ...[
-                const SizedBox(width: 2),
-                _GlassIconButton(
-                  icon: Icons.audiotrack_rounded,
-                  size: 19,
-                  onTap: onShowAudio,
-                  active: true,
-                ),
-              ],
+              // Audio track — always visible. Highlighted (accent) when the
+              // video actually has more than one audio track to choose from.
+              const SizedBox(width: 2),
+              _GlassIconButton(
+                icon: Icons.audiotrack_rounded,
+                size: 19,
+                onTap: onShowAudio,
+                active: hasMultipleAudio,
+              ),
+              const SizedBox(width: 2),
+              // Audio (background) mode — play as audio and leave the screen.
+              _GlassIconButton(
+                icon: Icons.headphones_rounded,
+                size: 19,
+                onTap: onAudioMode,
+              ),
               const SizedBox(width: 2),
               // Subtitle
               _GlassIconButton(

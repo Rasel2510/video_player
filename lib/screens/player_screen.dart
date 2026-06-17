@@ -69,7 +69,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void dispose() {
     _lockIconCtrl.dispose();
     _lockIconLocalTimer?.cancel();
-    _notifier.dispose();
+    // leaveScreen keeps the player alive when audio mode is on; otherwise it
+    // fully disposes. Guarded internally against the double call from PopScope.
+    _notifier.leaveScreen();
     super.dispose();
   }
 
@@ -169,7 +171,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Widget build(BuildContext context) {
     return PopScope(
       onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) await _notifier.dispose();
+        if (didPop) await _notifier.leaveScreen();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -412,6 +414,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         if (willLock) _showLockIconLocal();
                       },
                       onToggleRepeat: notifier.cycleLoopMode,
+                      onAudioMode: () {
+                        // Switch to background audio and leave the screen —
+                        // playback keeps going, controlled from the
+                        // notification / lock screen.
+                        notifier.enableAudioMode();
+                        Navigator.pop(context);
+                      },
                     ),
                   );
                   return AnimatedOpacity(

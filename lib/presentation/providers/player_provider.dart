@@ -12,6 +12,7 @@ import '../../services/duration_cache_service.dart';
 import '../../services/media_session_service.dart';
 import '../../services/player_preferences_service.dart';
 import '../../services/position_service.dart';
+import '../../services/thumbnail_service.dart';
 import '../../services/volume_service.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
@@ -118,6 +119,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
   Timer? _saveTimer;
   Timer? _autoPlayTimer;
   String? _currentPath;
+  // Resolved thumbnail path for the current video, used as lock-screen art.
+  String? _currentArtPath;
 
   bool _hasStartedPlaying = false;
   final List<StreamSubscription> _subs = [];
@@ -128,10 +131,27 @@ class PlayerNotifier extends Notifier<PlayerState> {
   // Guards against notification panel callbacks after dispose begins.
   bool _isDisposing = false;
 
+  // Audio (background) mode. When the user taps the audio button we keep the
+  // player alive after they leave the screen so playback continues like an
+  // audio track, controlled from the lock-screen / notification media session.
+  bool _audioMode = false;
+  bool get audioMode => _audioMode;
+
+  // Set once the screen has been left (popped) so PopScope + State.dispose —
+  // which both fire on exit — don't run the teardown twice.
+  bool _leftScreen = false;
+
   // Throttles lock-screen playback-state syncs to ~1/s — position updates
   // fire several times a second and each sync rebuilds + reposts the
   // Android notification on the native side.
   DateTime? _lastMediaSessionSync;
+
+  // Marks the last time the app itself drove the device volume (swipe / sheet).
+  // The OS echoes our change back through the volume listener — quantized to
+  // the device's discrete steps — which would otherwise snap the smooth value
+  // the user is dragging. We ignore the listener inside this window so only
+  // genuine hardware-button presses update state.
+  DateTime? _appVolumeChangeAt;
 
   @override
   PlayerState build() => const PlayerState();
@@ -148,6 +168,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
     int initialIndex = -1,
   }) async {
     _isDisposing = false;
+    _audioMode = false;
+    _leftScreen = false;
     _hasStartedPlaying = false;
 
     // Load persisted prefs, device volume, and brightness all in parallel —
@@ -186,6 +208,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     _disposeInternal();
     _currentPath = filePath;
+    _currentArtPath = null;
 
     _player = Player();
     _videoController = VideoController(_player!);
@@ -205,10 +228,19 @@ class PlayerNotifier extends Notifier<PlayerState> {
     // is called twice the second call overwrites the first without cleanup.
     VolumeService.instance.removeListener();
     VolumeService.instance.addListener((vol) {
+      if (_isDisposing) return;
+      // Ignore the OS's quantized echo of a volume change we just made — it
+      // would snap the smooth value the user is dragging. Only react to real
+      // external (hardware-button) changes outside that window.
+      final last = _appVolumeChangeAt;
+      if (last != null &&
+          DateTime.now().difference(last) < const Duration(milliseconds: 600)) {
+        return;
+      }
       // Only sync device volume changes when not in boost mode.
       // During boost (> 100%), the user explicitly set amplification via the
       // app UI — physical button events should not override that.
-      if (!_isDisposing && state.volume <= 100.0) {
+      if (state.volume <= 100.0) {
         state = state.copyWith(volume: vol * 100);
       }
     });
@@ -347,9 +379,27 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void _syncMediaSessionMetadata() {
     if (_isDisposing) return;
+    final path = _currentPath;
     final title = state.currentVideo?.name ??
-        (_currentPath != null ? p.basename(_currentPath!) : '');
-    MediaSessionService.setMetadata(title: title, duration: state.duration);
+        (path != null ? p.basename(path) : '');
+    // Post immediately with whatever art we've already resolved (may be null),
+    // then upgrade once the thumbnail for this video is ready.
+    MediaSessionService.setMetadata(
+      title: title,
+      duration: state.duration,
+      artPath: _currentArtPath,
+    );
+    if (path == null || _currentArtPath != null) return;
+    ThumbnailService.instance.getThumbnail(path).then((file) {
+      // Bail if we've since disposed or switched to a different video.
+      if (_isDisposing || file == null || _currentPath != path) return;
+      _currentArtPath = file.path;
+      MediaSessionService.setMetadata(
+        title: title,
+        duration: state.duration,
+        artPath: file.path,
+      );
+    });
   }
 
   void _syncMediaSessionPlaybackState({bool throttle = false}) {
@@ -411,6 +461,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _autoPlayTimer?.cancel();
     await _savePosition();
     _currentPath = filePath;
+    _currentArtPath = null;
     _hasStartedPlaying = false;
 
     state = state.copyWith(
@@ -529,6 +580,10 @@ class PlayerNotifier extends Notifier<PlayerState> {
   // ── Swipe gestures ─────────────────────────────────────────────────────────
 
   SwipeGesture startSwipe(double dx, double screenWidth) {
+    // Cancel any pending hide-timer left over from a previous gesture so it
+    // can't fire mid-swipe and hide the HUD while the finger is still down.
+    // (Android's scale recognizer can end+restart during one continuous drag.)
+    _hudTimer?.cancel();
     final gesture =
         dx < screenWidth / 2 ? SwipeGesture.brightness : SwipeGesture.volume;
     state = state.copyWith(
@@ -542,6 +597,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void updateSwipe(double dy, double screenHeight) {
     if (state.swipeGesture == SwipeGesture.none) return;
+    // Keep the HUD pinned while the finger is actively moving — only endSwipe
+    // (finger lift) is allowed to schedule the hide.
+    _hudTimer?.cancel();
     final delta = -(dy / (screenHeight * 0.6));
     if (state.swipeGesture == SwipeGesture.brightness) {
       final newBrightness = (state.brightness + delta).clamp(0.0, 1.0);
@@ -551,10 +609,10 @@ class PlayerNotifier extends Notifier<PlayerState> {
     } else {
       final newVol = (state.volume + delta * 100).clamp(0.0, 200.0);
       if (newVol <= 100.0) {
-        VolumeService.instance.setDeviceVolume(newVol / 100.0);
+        _setDeviceVolume(newVol / 100.0);
         _player?.setVolume(100);
       } else {
-        VolumeService.instance.setDeviceVolume(1.0);
+        _setDeviceVolume(1.0);
         _player?.setVolume(newVol);
       }
       state = state.copyWith(volume: newVol, swipeValue: newVol / 200.0);
@@ -573,6 +631,13 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   Future<void> _applyBrightness(double value) async {
     try { await _brightness.setScreenBrightness(value); } catch (_) {}
+  }
+
+  // Routes every app-driven device-volume change through one place so the
+  // listener can ignore the OS echo (see _appVolumeChangeAt).
+  void _setDeviceVolume(double v) {
+    _appVolumeChangeAt = DateTime.now();
+    VolumeService.instance.setDeviceVolume(v);
   }
 
   // ── Internal cleanup ───────────────────────────────────────────────────────
@@ -658,11 +723,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
     final clamped = volume.clamp(0.0, 200.0);
     if (clamped <= 100.0) {
       // Normal range: device volume controls output, player at 100% internally.
-      VolumeService.instance.setDeviceVolume(clamped / 100.0);
+      _setDeviceVolume(clamped / 100.0);
       _player?.setVolume(100);
     } else {
       // Boost range: device at max, player amplifies beyond 100%.
-      VolumeService.instance.setDeviceVolume(1.0);
+      _setDeviceVolume(1.0);
       _player?.setVolume(clamped);
     }
     state = state.copyWith(volume: clamped);
@@ -708,6 +773,55 @@ class PlayerNotifier extends Notifier<PlayerState> {
     SystemChrome.setPreferredOrientations(orientations);
     SystemChrome.setEnabledSystemUIMode(uiMode);
     showControls();
+  }
+
+  // ── Audio (background) mode ─────────────────────────────────────────────────
+
+  /// Turns the current video into background audio: the player keeps running
+  /// after the screen is popped, controlled from the media-session notification.
+  /// The caller (PlayerScreen) pops the route right after.
+  void enableAudioMode() {
+    _audioMode = true;
+  }
+
+  /// Called by PlayerScreen when the route is leaving (PopScope + State.dispose
+  /// both fire). In audio mode we keep the player alive and only let go of the
+  /// on-screen affordances; otherwise we fully tear down.
+  Future<void> leaveScreen() async {
+    if (_leftScreen) return;
+    _leftScreen = true;
+    if (_audioMode) {
+      await _detachForAudioMode();
+    } else {
+      await dispose();
+    }
+  }
+
+  /// Keeps [_player] decoding (audio continues) but restores the system chrome
+  /// the player screen had changed, so the screen we return to looks normal.
+  /// Streams stay subscribed so position saving, auto-play, and the media
+  /// session keep working in the background.
+  Future<void> _detachForAudioMode() async {
+    _hideTimer?.cancel();
+    _lockIconTimer?.cancel();
+    _hudTimer?.cancel();
+    _saveTimer?.cancel();
+    await _savePosition();
+
+    try { await _brightness.resetScreenBrightness(); } catch (_) {}
+    // Audio doesn't need the screen awake — let it sleep; playback continues.
+    await WakelockPlus.disable();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+
+    // Make sure the notification reflects the latest state now that it's the
+    // only control surface.
+    _syncMediaSessionMetadata();
+    _syncMediaSessionPlaybackState();
   }
 
   Future<void> dispose() async {
