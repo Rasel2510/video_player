@@ -181,10 +181,7 @@ class _TopBar extends ConsumerWidget {
           speed: s.playbackSpeed,
           volume: s.volume,
           loopMode: s.loopMode,
-          hasMultipleAudio: s.audioTracks
-                  .where((t) => t.id != 'no' && t.id != 'auto')
-                  .length >
-              1,
+          hasMultipleAudio: s.audioTracks.length > 1,
           hasSubtitles: s.subtitleTracks.isNotEmpty,
           subtitlesEnabled: s.subtitlesEnabled,
         )));

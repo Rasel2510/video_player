@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import '../core/theme/app_theme.dart';
 import '../models/video_file.dart';
 import '../presentation/widgets/resume_dialog.dart';
 import '../presentation/providers/theme_provider.dart';
+import '../presentation/providers/player_provider.dart';
+import '../services/media_session_service.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
 import 'library_screen.dart';
@@ -56,38 +59,52 @@ class HomeScreen extends ConsumerWidget {
         ? Icons.light_mode_rounded 
         : (themeMode == ThemeMode.dark ? Icons.dark_mode_rounded : Icons.brightness_auto_rounded);
 
-    return Scaffold(
-      backgroundColor: context.colors.bg,
-      appBar: AppBar(
-        title: Row(
-          children: [
-            Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(
-                color: context.colors.accent,
-                shape: BoxShape.circle,
+    return PopScope(
+      // We handle the root back press ourselves so audio mode can background
+      // the app (keeping playback + lock-screen controls alive) instead of
+      // finishing the activity.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (ref.read(playerProvider.notifier).audioMode) {
+          await MediaSessionService.moveTaskToBack();
+        } else {
+          await SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: context.colors.bg,
+        appBar: AppBar(
+          title: Row(
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: context.colors.accent,
+                  shape: BoxShape.circle,
+                ),
               ),
+              const SizedBox(width: 10),
+              const Text('Videos'),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: Icon(themeIcon),
+              tooltip: 'Toggle Theme',
+              onPressed: () => ref.read(themeProvider.notifier).toggleTheme(),
             ),
-            const SizedBox(width: 10),
-            const Text('Videos'),
+            IconButton(
+              icon: const Icon(Icons.add_rounded),
+              tooltip: 'Open file',
+              onPressed: () => _pickAndOpenVideo(context),
+            ),
+            const SizedBox(width: 4),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: Icon(themeIcon),
-            tooltip: 'Toggle Theme',
-            onPressed: () => ref.read(themeProvider.notifier).toggleTheme(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            tooltip: 'Open file',
-            onPressed: () => _pickAndOpenVideo(context),
-          ),
-          const SizedBox(width: 4),
-        ],
+        body: LibraryScreen(onOpenVideo: (vf) => _openVideo(context, vf)),
       ),
-      body: LibraryScreen(onOpenVideo: (vf) => _openVideo(context, vf)),
     );
   }
 }

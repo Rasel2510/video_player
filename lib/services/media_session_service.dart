@@ -59,4 +59,12 @@ class MediaSessionService {
       await _channel.invokeMethod('release');
     } catch (_) {}
   }
+
+  /// Sends the app to the background (like the Home button) instead of letting
+  /// the back button finish the activity — keeps playback alive in audio mode.
+  static Future<void> moveTaskToBack() async {
+    try {
+      await _channel.invokeMethod('moveTaskToBack');
+    } catch (_) {}
+  }
 }

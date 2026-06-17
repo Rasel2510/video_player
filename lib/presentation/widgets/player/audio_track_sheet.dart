@@ -101,7 +101,7 @@ class AudioTrackSheet extends StatelessWidget {
                           const SizedBox(width: 14),
                           Expanded(
                             child: Text(
-                              _getTrackLabel(track, index),
+                              _getTrackLabel(track, index, tracks.length),
                               style: TextStyle(
                                 color: isSelected
                                     ? context.colors.textPrimary
@@ -129,14 +129,42 @@ class AudioTrackSheet extends StatelessWidget {
     );
   }
 
-  String _getTrackLabel(AudioTrack track, int index) {
-    if (track.id == 'no') return 'Disabled';
-    if (track.id == 'auto') return 'Auto';
-    final lang = track.language?.toUpperCase();
-    final title = track.title;
-    if (lang != null && title != null) return '$lang — $title';
-    if (lang != null) return 'Track $index ($lang)';
-    if (title != null) return title;
-    return 'Audio Track $index';
+  String _getTrackLabel(AudioTrack track, int index, int total) {
+    final title = track.title?.trim();
+    if (title != null && title.isNotEmpty) return title;
+    final language = _languageName(track.language);
+    if (language != null) return language;
+    return total > 1 ? 'Track ${index + 1}' : 'Default';
+  }
+
+  static const Map<String, String> _languageNames = {
+    'en': 'English', 'eng': 'English',
+    'es': 'Spanish', 'spa': 'Spanish',
+    'fr': 'French', 'fre': 'French', 'fra': 'French',
+    'de': 'German', 'ger': 'German', 'deu': 'German',
+    'it': 'Italian', 'ita': 'Italian',
+    'pt': 'Portuguese', 'por': 'Portuguese',
+    'ru': 'Russian', 'rus': 'Russian',
+    'ja': 'Japanese', 'jpn': 'Japanese',
+    'ko': 'Korean', 'kor': 'Korean',
+    'zh': 'Chinese', 'chi': 'Chinese', 'zho': 'Chinese',
+    'ar': 'Arabic', 'ara': 'Arabic',
+    'hi': 'Hindi', 'hin': 'Hindi',
+    'bn': 'Bengali', 'ben': 'Bengali',
+    'ur': 'Urdu', 'urd': 'Urdu',
+    'tr': 'Turkish', 'tur': 'Turkish',
+    'vi': 'Vietnamese', 'vie': 'Vietnamese',
+    'th': 'Thai', 'tha': 'Thai',
+    'id': 'Indonesian', 'ind': 'Indonesian',
+    'nl': 'Dutch', 'dut': 'Dutch', 'nld': 'Dutch',
+    'pl': 'Polish', 'pol': 'Polish',
+    'uk': 'Ukrainian', 'ukr': 'Ukrainian',
+  };
+
+  String? _languageName(String? code) {
+    if (code == null) return null;
+    final normalized = code.toLowerCase();
+    if (normalized.isEmpty || normalized == 'und') return null;
+    return _languageNames[normalized] ?? code.toUpperCase();
   }
 }

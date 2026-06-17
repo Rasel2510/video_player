@@ -100,6 +100,14 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                "moveTaskToBack" -> {
+                    // Background the app (like Home) instead of finishing the
+                    // activity, so the Flutter engine + playback stay alive
+                    // when the user backs out during audio mode.
+                    moveTaskToBack(true)
+                    result.success(null)
+                }
+
                 else -> result.notImplemented()
             }
         }

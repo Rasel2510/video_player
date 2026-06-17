@@ -313,10 +313,14 @@ class PlayerNotifier extends Notifier<PlayerState> {
     }));
 
     _subs.add(_player!.stream.tracks.listen((v) {
+      // media_kit injects synthetic 'auto'/'no' placeholder entries alongside
+      // the real demuxed tracks — strip them so the UI only ever lists tracks
+      // that actually exist in the file.
+      final audio = v.audio.where((t) => t.id != 'no' && t.id != 'auto').toList();
       final subs =
           v.subtitle.where((t) => t.id != 'no' && t.id != 'auto').toList();
       state = state.copyWith(
-        audioTracks: v.audio,
+        audioTracks: audio,
         selectedAudioTrack: _player!.state.track.audio,
         subtitleTracks: subs,
         selectedSubtitleTrack: _player!.state.track.subtitle,
