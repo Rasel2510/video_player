@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/video_file.dart';
 import '../../models/video_folder.dart';
 import '../../services/folder_scanner.dart';
+import '../../services/media_store_service.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'folders_provider.freezed.dart';
@@ -225,12 +228,38 @@ class FoldersState with _$FoldersState {
 class FoldersNotifier extends Notifier<FoldersState> {
   final Set<String> _sessionSeenPaths = {};
 
+  // ── MediaStore (Android) live-refresh state ──
+  // True once the native ContentObserver is registered.
+  bool _watchingMediaStore = false;
+  // Guards against overlapping refreshes; _refreshPending re-runs once if a
+  // change arrives mid-refresh so we never miss the latest state.
+  bool _refreshing = false;
+  bool _refreshPending = false;
+  // Coalesces the burst of ContentObserver callbacks a single file op emits.
+  Timer? _refreshDebounce;
+
+  bool get _useMediaStore => Platform.isAndroid;
+
   @override
   FoldersState build() => const FoldersState();
 
   Future<void> load({bool forceScan = false}) async {
     if (state.isScanning) return;
 
+    // Android: use the MediaStore index (fast) + live ContentObserver updates.
+    if (_useMediaStore) {
+      _ensureMediaStoreWatch();
+      if (!forceScan && state.folders.isEmpty) {
+        final cached = await _loadCache();
+        if (cached != null && cached.isNotEmpty) {
+          await _showCache(cached, _discoverStorageRoots());
+        }
+      }
+      await _mediaStoreRefresh(showScanning: state.folders.isEmpty);
+      return;
+    }
+
+    // Other platforms: fall back to the recursive filesystem scan.
     final roots = _discoverStorageRoots();
 
     if (forceScan) {
@@ -241,32 +270,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
     if (state.folders.isEmpty) {
       final cached = await _loadCache();
       if (cached != null && cached.isNotEmpty) {
-        // FIX #SDCARD: Filter out folders whose storage root no longer exists.
-        final validFolders = cached.where((f) {
-          return roots.any((root) => f.path.startsWith(root));
-        }).toList();
-
-        final seenPaths = await _loadSeenPaths();
-        final initialised = seenPaths != null && seenPaths.isNotEmpty;
-        final newPaths = <String>{};
-        if (initialised) {
-          for (final f in validFolders) {
-            if (!seenPaths.contains(f.path) && !_sessionSeenPaths.contains(f.path)) newPaths.add(f.path);
-            for (final v in f.videos) {
-              if (!seenPaths.contains(v.path) && !_sessionSeenPaths.contains(v.path)) {
-                newPaths.add(v.path);
-                newPaths.add(f.path);
-              }
-            }
-          }
-        }
-
-        state = state.copyWith(
-          folders: validFolders,
-          fromCache: true,
-          storageRoots: roots,
-          newPaths: newPaths,
-        );
+        await _showCache(cached, roots);
         _backgroundCheck(roots);
         return;
       }
@@ -275,6 +279,99 @@ class FoldersNotifier extends Notifier<FoldersState> {
     }
 
     _backgroundCheck(roots);
+  }
+
+  // ── MediaStore (Android) ──────────────────────────────────────────────────
+
+  void _ensureMediaStoreWatch() {
+    if (_watchingMediaStore) return;
+    _watchingMediaStore = true;
+    MediaStoreService.setChangeHandler(_onMediaStoreChanged);
+    MediaStoreService.startWatching();
+  }
+
+  void _onMediaStoreChanged() {
+    // A single download/delete fires several callbacks — debounce them.
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 600), () {
+      _mediaStoreRefresh(showScanning: false);
+    });
+  }
+
+  Future<void> _mediaStoreRefresh({required bool showScanning}) async {
+    if (_refreshing) {
+      _refreshPending = true;
+      return;
+    }
+    _refreshing = true;
+    try {
+      if (showScanning && state.folders.isEmpty) {
+        state = state.copyWith(
+          isScanning: true,
+          scanProgress: 0,
+          fromCache: false,
+          storageRoots: _discoverStorageRoots(),
+        );
+      }
+      final videos = await MediaStoreService.queryVideos();
+      await _applyFolders(_groupByFolder(videos));
+    } finally {
+      _refreshing = false;
+      if (_refreshPending) {
+        _refreshPending = false;
+        await _mediaStoreRefresh(showScanning: false);
+      }
+    }
+  }
+
+  /// Groups a flat MediaStore video list into folders by parent directory,
+  /// matching what the filesystem scanner produces (folder path + sorted list).
+  List<VideoFolder> _groupByFolder(List<VideoFile> videos) {
+    final Map<String, List<VideoFile>> map = {};
+    for (final v in videos) {
+      map.putIfAbsent(p.dirname(v.path), () => []).add(v);
+    }
+    final folders = map.entries.map((e) {
+      final vids = e.value;
+      final vkeys = {for (final v in vids) v: v.name.toLowerCase()};
+      vids.sort((a, b) => vkeys[a]!.compareTo(vkeys[b]!));
+      return VideoFolder(path: e.key, videos: vids);
+    }).toList();
+    final fkeys = {for (final f in folders) f: f.name.toLowerCase()};
+    folders.sort((a, b) => fkeys[a]!.compareTo(fkeys[b]!));
+    return folders;
+  }
+
+  // ── Shared: show cached folders with "new" badges ─────────────────────────
+
+  Future<void> _showCache(List<VideoFolder> cached, List<String> roots) async {
+    // FIX #SDCARD: Filter out folders whose storage root no longer exists.
+    final validFolders =
+        cached.where((f) => roots.any((root) => f.path.startsWith(root))).toList();
+
+    final seenPaths = await _loadSeenPaths();
+    final initialised = seenPaths != null && seenPaths.isNotEmpty;
+    final newPaths = <String>{};
+    if (initialised) {
+      for (final f in validFolders) {
+        if (!seenPaths.contains(f.path) && !_sessionSeenPaths.contains(f.path)) {
+          newPaths.add(f.path);
+        }
+        for (final v in f.videos) {
+          if (!seenPaths.contains(v.path) && !_sessionSeenPaths.contains(v.path)) {
+            newPaths.add(v.path);
+            newPaths.add(f.path);
+          }
+        }
+      }
+    }
+
+    state = state.copyWith(
+      folders: validFolders,
+      fromCache: true,
+      storageRoots: roots,
+      newPaths: newPaths,
+    );
   }
 
   Future<void> _backgroundCheck(List<String> roots) async {
@@ -329,6 +426,13 @@ class FoldersNotifier extends Notifier<FoldersState> {
     final fkeys = {for (final f in merged) f: f.name.toLowerCase()};
     merged.sort((a, b) => fkeys[a]!.compareTo(fkeys[b]!));
 
+    await _applyFolders(merged);
+  }
+
+  /// Commits a freshly-built folder list: computes "new" badges relative to the
+  /// persisted seen-paths, updates state, and saves the cache + seen paths.
+  /// Source-agnostic — used by both the filesystem scan and MediaStore refresh.
+  Future<void> _applyFolders(List<VideoFolder> merged) async {
     final seenPaths = await _loadSeenPaths();
 
     // FIX #4: Build current path set and prune stale entries from seenPaths.

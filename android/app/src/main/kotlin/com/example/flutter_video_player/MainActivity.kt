@@ -27,6 +27,7 @@ class MainActivity : FlutterActivity() {
 
     private var mediaSession: MediaSessionCompat? = null
     private var methodChannel: MethodChannel? = null
+    private var mediaStoreBridge: MediaStoreBridge? = null
 
     private var isPlaying = false
     private var videoTitle = "Video Player"
@@ -43,6 +44,10 @@ class MainActivity : FlutterActivity() {
         // Lets MediaActionReceiver forward notification-button taps back to us.
         activeInstance = this
         createNotificationChannel()
+
+        // Fast MediaStore video index + live ContentObserver notifications.
+        mediaStoreBridge =
+            MediaStoreBridge(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
 
@@ -293,6 +298,8 @@ class MainActivity : FlutterActivity() {
         mediaSession?.release()
         mediaSession = null
         methodChannel = null
+        mediaStoreBridge?.dispose()
+        mediaStoreBridge = null
         if (activeInstance === this) activeInstance = null
         super.onDestroy()
     }

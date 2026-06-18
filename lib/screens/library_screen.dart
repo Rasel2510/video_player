@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_video_player/core/theme/app_theme.dart';
@@ -71,6 +72,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   // ── Permission helpers ────────────────────────────────────────────────────
 
   Future<void> _checkPermissionsAndLoad() async {
+    // iOS sandboxes apps to their own container — there's no shared device
+    // storage to scan and no Android-style storage permission. Videos are
+    // opened via the file picker, so skip the permission flow and show the
+    // (empty) library directly.
+    if (!Platform.isAndroid) {
+      if (!mounted) return;
+      setState(() {
+        _permissionGranted = true;
+        _checkingPermission = false;
+      });
+      ref.read(foldersProvider.notifier).load(forceScan: false);
+      return;
+    }
     setState(() => _checkingPermission = true);
     await Permission.videos.request();
     if (!mounted) return;
