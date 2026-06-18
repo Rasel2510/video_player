@@ -9,6 +9,8 @@ import '../../models/video_file.dart';
 import '../../models/video_folder.dart';
 import '../../services/folder_scanner.dart';
 import '../../services/media_store_service.dart';
+import '../../services/player_preferences_service.dart';
+import 'scan_mode_provider.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'folders_provider.freezed.dart';
@@ -238,7 +240,17 @@ class FoldersNotifier extends Notifier<FoldersState> {
   // Coalesces the burst of ContentObserver callbacks a single file op emits.
   Timer? _refreshDebounce;
 
-  bool get _useMediaStore => Platform.isAndroid;
+  // The mode in effect for the current results — cached so the live observer
+  // can ignore changes when the user has switched to pure file-scanner mode.
+  LibraryScanMode _scanMode = LibraryScanMode.hybrid;
+
+  // MediaStore is Android-only. Off Android we always use the file scanner.
+  Future<LibraryScanMode> _resolveScanMode() async {
+    if (!Platform.isAndroid) return LibraryScanMode.fileScanner;
+    final idx = await PlayerPreferencesService.instance.loadScanModeIndex();
+    return LibraryScanMode.values[
+        idx.clamp(0, LibraryScanMode.values.length - 1)];
+  }
 
   @override
   FoldersState build() => const FoldersState();
@@ -246,8 +258,12 @@ class FoldersNotifier extends Notifier<FoldersState> {
   Future<void> load({bool forceScan = false}) async {
     if (state.isScanning) return;
 
-    // Android: use the MediaStore index (fast) + live ContentObserver updates.
-    if (_useMediaStore) {
+    _scanMode = await _resolveScanMode();
+
+    // Hybrid / MediaStore: use the MediaStore index (fast) + live observer.
+    // Hybrid additionally walks the filesystem to catch .nomedia folders
+    // (WhatsApp, Telegram, …) that MediaStore deliberately skips.
+    if (_scanMode != LibraryScanMode.fileScanner) {
       _ensureMediaStoreWatch();
       if (!forceScan && state.folders.isEmpty) {
         final cached = await _loadCache();
@@ -255,11 +271,15 @@ class FoldersNotifier extends Notifier<FoldersState> {
           await _showCache(cached, _discoverStorageRoots());
         }
       }
-      await _mediaStoreRefresh(showScanning: state.folders.isEmpty);
+      await _mediaStoreRefresh(
+        showScanning: state.folders.isEmpty,
+        withFilesystemMerge: _scanMode == LibraryScanMode.hybrid,
+      );
       return;
     }
 
-    // Other platforms: fall back to the recursive filesystem scan.
+    // File-scanner mode (and every non-Android platform): recursive walk only.
+    _stopMediaStoreWatch();
     final roots = _discoverStorageRoots();
 
     if (forceScan) {
@@ -281,6 +301,13 @@ class FoldersNotifier extends Notifier<FoldersState> {
     _backgroundCheck(roots);
   }
 
+  /// Re-scans from scratch after the user changes the scan mode in settings.
+  Future<void> rescanForModeChange() async {
+    _stopMediaStoreWatch();
+    state = const FoldersState(); // clean slate so the new method rescans fresh
+    await load(forceScan: true);
+  }
+
   // ── MediaStore (Android) ──────────────────────────────────────────────────
 
   void _ensureMediaStoreWatch() {
@@ -290,7 +317,17 @@ class FoldersNotifier extends Notifier<FoldersState> {
     MediaStoreService.startWatching();
   }
 
+  void _stopMediaStoreWatch() {
+    if (!_watchingMediaStore) return;
+    _watchingMediaStore = false;
+    _refreshDebounce?.cancel();
+    MediaStoreService.stopWatching();
+  }
+
   void _onMediaStoreChanged() {
+    // Ignore live MediaStore changes when the user has opted into pure
+    // file-scanner mode (its results would otherwise be overwritten).
+    if (_scanMode == LibraryScanMode.fileScanner) return;
     // A single download/delete fires several callbacks — debounce them.
     _refreshDebounce?.cancel();
     _refreshDebounce = Timer(const Duration(milliseconds: 600), () {
@@ -298,7 +335,10 @@ class FoldersNotifier extends Notifier<FoldersState> {
     });
   }
 
-  Future<void> _mediaStoreRefresh({required bool showScanning}) async {
+  Future<void> _mediaStoreRefresh({
+    required bool showScanning,
+    bool withFilesystemMerge = false,
+  }) async {
     if (_refreshing) {
       _refreshPending = true;
       return;
@@ -313,14 +353,47 @@ class FoldersNotifier extends Notifier<FoldersState> {
           storageRoots: _discoverStorageRoots(),
         );
       }
+      // Index videos by path so the filesystem merge can dedupe against them.
       final videos = await MediaStoreService.queryVideos();
-      await _applyFolders(_groupByFolder(videos));
+      final byPath = <String, VideoFile>{for (final v in videos) v.path: v};
+      await _applyFolders(_groupByFolder(byPath.values.toList()));
+
+      // Only walk the filesystem on explicit loads/resumes (not on every live
+      // MediaStore tick) — this is where the old code already scanned, so the
+      // battery cost is unchanged, and it's the path that surfaces WhatsApp/
+      // Telegram videos MediaStore can't see.
+      if (withFilesystemMerge) {
+        await _filesystemMerge(byPath);
+      }
     } finally {
       _refreshing = false;
       if (_refreshPending) {
         _refreshPending = false;
         await _mediaStoreRefresh(showScanning: false);
       }
+    }
+  }
+
+  /// Runs the recursive filesystem scan (which ignores `.nomedia`, unlike
+  /// MediaStore) and merges any videos MediaStore missed into the library.
+  /// [byPath] already holds the MediaStore results, keyed by path, so we only
+  /// re-render when the walk actually turns up something extra.
+  Future<void> _filesystemMerge(Map<String, VideoFile> byPath) async {
+    final roots = _discoverStorageRoots();
+    var foundExtra = false;
+    for (final root in roots) {
+      final folders = await FolderScanner.scanFolders(root);
+      for (final f in folders) {
+        for (final v in f.videos) {
+          if (!byPath.containsKey(v.path)) {
+            byPath[v.path] = v;
+            foundExtra = true;
+          }
+        }
+      }
+    }
+    if (foundExtra) {
+      await _applyFolders(_groupByFolder(byPath.values.toList()));
     }
   }
 

@@ -19,6 +19,7 @@ class PlayerPreferencesService {
   static const _sortByKey    = 'folder_sort_by_v1';
   static const _themeModeKey = 'app_theme_mode_v1';
   static const _loopModeKey  = 'player_loop_mode_v1';
+  static const _scanModeKey  = 'library_scan_mode_v1';
 
   // ── Fit mode ──────────────────────────────────────────────────────────────
 
@@ -68,5 +69,16 @@ class PlayerPreferencesService {
 
   Future<void> saveLoopModeIndex(int index) async {
     try { await (await _p).setInt(_loopModeKey, index); } catch (_) {}
+  }
+
+  // ── Library scan mode ──────────────────────────────────────────────────────
+  // 0 = hybrid (default), 1 = mediaStore, 2 = fileScanner. See LibraryScanMode.
+
+  Future<int> loadScanModeIndex() async {
+    try { return (await _p).getInt(_scanModeKey) ?? 0; } catch (_) { return 0; }
+  }
+
+  Future<void> saveScanModeIndex(int index) async {
+    try { await (await _p).setInt(_scanModeKey, index); } catch (_) {}
   }
 }
