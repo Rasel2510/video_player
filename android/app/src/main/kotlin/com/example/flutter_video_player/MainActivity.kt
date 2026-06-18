@@ -275,6 +275,18 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // Handles a notification-button tap. Flips the play/pause state in the
+    // notification immediately — before the Dart round-trip and the playback
+    // stream echo that would otherwise gate the icon update — so the control
+    // feels instant. The real playback state from Flutter confirms/corrects it.
+    private fun onRemoteAction(action: String) {
+        when (action) {
+            "play"  -> { isPlaying = true;  postNotification() }
+            "pause" -> { isPlaying = false; postNotification() }
+        }
+        dispatchToFlutter(action)
+    }
+
     private fun dispatchToFlutter(action: String) {
         try {
             methodChannel?.invokeMethod("onMediaAction", action)
@@ -315,7 +327,7 @@ class MainActivity : FlutterActivity() {
         private var activeInstance: MainActivity? = null
 
         fun dispatchMediaAction(action: String) {
-            activeInstance?.dispatchToFlutter(action)
+            activeInstance?.onRemoteAction(action)
         }
     }
 }
