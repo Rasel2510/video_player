@@ -14,6 +14,7 @@ import '../../services/player_preferences_service.dart';
 import '../../services/position_service.dart';
 import '../../services/thumbnail_service.dart';
 import '../../services/volume_service.dart';
+import '../../core/utils/track_labels.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'player_provider.freezed.dart';
@@ -125,6 +126,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
   bool _hasStartedPlaying = false;
   final List<StreamSubscription> _subs = [];
 
+  // Externally loaded subtitle files (.srt/.vtt/…). media_kit applies these via
+  // SubtitleTrack.uri but does not surface them in the tracks stream, so we keep
+  // them here and merge them into the displayed list ourselves.
+  final List<SubtitleTrack> _externalSubtitles = [];
+
   // Single ScreenBrightness instance — avoids creating a new object every call.
   final _brightness = ScreenBrightness();
 
@@ -209,6 +215,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _disposeInternal();
     _currentPath = filePath;
     _currentArtPath = null;
+    _externalSubtitles.clear();
 
     _player = Player();
     _videoController = VideoController(_player!);
@@ -315,10 +322,14 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _subs.add(_player!.stream.tracks.listen((v) {
       // media_kit injects synthetic 'auto'/'no' placeholder entries alongside
       // the real demuxed tracks — strip them so the UI only ever lists tracks
-      // that actually exist in the file.
-      final audio = v.audio.where((t) => t.id != 'no' && t.id != 'auto').toList();
-      final subs =
-          v.subtitle.where((t) => t.id != 'no' && t.id != 'auto').toList();
+      // that actually exist in the file. External subtitle files are merged in
+      // since they never appear in the demuxed stream.
+      final audio =
+          v.audio.where((t) => !TrackLabels.isPlaceholderId(t.id)).toList();
+      final subs = [
+        ...v.subtitle.where((t) => !TrackLabels.isPlaceholderId(t.id)),
+        ..._externalSubtitles,
+      ];
       state = state.copyWith(
         audioTracks: audio,
         selectedAudioTrack: _player!.state.track.audio,
@@ -466,6 +477,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     await _savePosition();
     _currentPath = filePath;
     _currentArtPath = null;
+    _externalSubtitles.clear();
     _hasStartedPlaying = false;
 
     state = state.copyWith(
@@ -578,6 +590,33 @@ class PlayerNotifier extends Notifier<PlayerState> {
       state = state.copyWith(selectedSubtitleTrack: state.subtitleTracks.first);
     }
     state = state.copyWith(subtitlesEnabled: enabled);
+    showControls();
+  }
+
+  /// Loads an external subtitle file (.srt/.vtt/.ass/…) from [path], selects it
+  /// immediately, and adds it to the subtitle list so the sheet can show and
+  /// highlight it. External tracks aren't surfaced by media_kit's tracks stream,
+  /// so we track them ourselves (see [_externalSubtitles]).
+  Future<void> loadExternalSubtitle(String path) async {
+    final player = _player;
+    if (player == null) return;
+    final track = SubtitleTrack.uri(path, title: p.basename(path));
+    try {
+      await player.setSubtitleTrack(track);
+    } catch (_) {
+      return;
+    }
+    _externalSubtitles
+      ..removeWhere((t) => t.id == track.id)
+      ..add(track);
+    state = state.copyWith(
+      subtitleTracks: [
+        ...state.subtitleTracks.where((t) => t.id != track.id),
+        track,
+      ],
+      selectedSubtitleTrack: track,
+      subtitlesEnabled: true,
+    );
     showControls();
   }
 

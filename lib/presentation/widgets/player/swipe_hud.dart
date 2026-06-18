@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/volume_color.dart';
 import '../../providers/player_provider.dart';
 
 class SwipeHud extends StatelessWidget {
@@ -14,29 +15,20 @@ class SwipeHud extends StatelessWidget {
 
   const SwipeHud({super.key, required this.gesture, required this.value});
 
-  static const Color _boostColor      = Color(0xFFFF8C00); // orange
   static const Color _brightnessColor = Color(0xFFFFE066); // warm yellow
 
   @override
   Widget build(BuildContext context) {
     final isBrightness = gesture == SwipeGesture.brightness;
 
-    // ── Boost ratio ──────────────────────────────────────────────────────────
-    // swipeValue = volume / 200, so 0.5 == 100 % and 1.0 == 200 %.
-    // boostT ramps 0 → 1 across the 100 % – 200 % range; it is 0 at or below
-    // 100 % so the colour only starts shifting once the user pushes into boost.
-    final double boostT =
-        isBrightness ? 0.0 : ((value - 0.5) / 0.5).clamp(0.0, 1.0);
-    final bool isBoosted = boostT > 0.0;
-
     // ── Colour ───────────────────────────────────────────────────────────────
     // Brightness: warm yellow.
-    // Volume ≤ 100 %: accent (blue).
-    // Volume > 100 %: lerp blue → orange, getting more orange the higher it goes.
-    final Color accent = context.colors.accent;
+    // Volume ≤ 100 %: accent (blue); > 100 %: lerp blue → orange, getting more
+    // orange the higher it goes (swipeValue = volume / 200, so value * 200 is
+    // the real volume %). Shared with the volume sheet via VolumeColor.
     final Color color = isBrightness
         ? _brightnessColor
-        : (isBoosted ? Color.lerp(accent, _boostColor, boostT)! : accent);
+        : VolumeColor.forVolume(value * 200, context.colors.accent);
 
     // ── Icon ────────────────────────────────────────────────────────────────
     final IconData icon;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/track_labels.dart';
 
 class AudioTrackSheet extends StatelessWidget {
   final List<AudioTrack> tracks;
@@ -14,8 +15,21 @@ class AudioTrackSheet extends StatelessWidget {
     required this.onSelect,
   });
 
+  bool get _audioDisabled => selectedTrack?.id == 'no';
+
+  /// Index of the real track to highlight. media_kit may report the active
+  /// track as the synthetic 'auto' entry (which we strip from the list) before
+  /// resolving it to a concrete track, so when the reported track isn't in the
+  /// list we fall back to the first track — that's what's actually playing.
+  int _selectedIndex() {
+    final id = selectedTrack?.id;
+    final i = tracks.indexWhere((t) => t.id == id);
+    return i < 0 ? 0 : i;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final selectedIndex = _selectedIndex();
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -71,53 +85,34 @@ class AudioTrackSheet extends StatelessWidget {
             )
           else
             Flexible(
+              // One row per track, plus a leading "Disabled" row (index 0) that
+              // mutes the audio track entirely.
               child: ListView.builder(
                 shrinkWrap: true,
-                itemCount: tracks.length,
+                itemCount: tracks.length + 1,
                 itemBuilder: (context, index) {
-                  final track = tracks[index];
-                  final isSelected = index == _selectedIndex();
-
-                  return InkWell(
-                    onTap: () {
-                      onSelect(track);
-                      Navigator.pop(context);
-                    },
-                    splashColor: context.colors.accentSoft,
-                    highlightColor: Colors.transparent,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 14),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.audiotrack_outlined,
-                            size: 18,
-                            color: isSelected
-                                ? context.colors.accent
-                                : context.colors.textMuted,
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Text(
-                              _getTrackLabel(track, index, tracks.length),
-                              style: TextStyle(
-                                color: isSelected
-                                    ? context.colors.textPrimary
-                                    : context.colors.textSecondary,
-                                fontWeight: isSelected
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          if (isSelected)
-                            Icon(Icons.check_rounded,
-                                color: context.colors.accent, size: 16),
-                        ],
-                      ),
+                  if (index == 0) {
+                    return _row(
+                      context,
+                      icon: Icons.volume_off_rounded,
+                      label: 'Disabled',
+                      isSelected: _audioDisabled,
+                      onTap: () => onSelect(AudioTrack.no()),
+                    );
+                  }
+                  final trackIndex = index - 1;
+                  final track = tracks[trackIndex];
+                  return _row(
+                    context,
+                    icon: Icons.audiotrack_outlined,
+                    label: TrackLabels.trackLabel(
+                      title: track.title,
+                      language: track.language,
+                      index: trackIndex,
+                      total: tracks.length,
                     ),
+                    isSelected: !_audioDisabled && trackIndex == selectedIndex,
+                    onTap: () => onSelect(track),
                   );
                 },
               ),
@@ -128,52 +123,51 @@ class AudioTrackSheet extends StatelessWidget {
     );
   }
 
-  /// Index of the row to highlight. media_kit may report the active track as
-  /// the synthetic 'auto' entry (which we strip from the list) before resolving
-  /// it to a concrete track, so when the reported track isn't in the list we
-  /// fall back to the first track — that's what's actually playing.
-  int _selectedIndex() {
-    final id = selectedTrack?.id;
-    final i = tracks.indexWhere((t) => t.id == id);
-    return i < 0 ? 0 : i;
-  }
-
-  String _getTrackLabel(AudioTrack track, int index, int total) {
-    final title = track.title?.trim();
-    if (title != null && title.isNotEmpty) return title;
-    final language = _languageName(track.language);
-    if (language != null) return language;
-    return total > 1 ? 'Track ${index + 1}' : 'Default';
-  }
-
-  static const Map<String, String> _languageNames = {
-    'en': 'English', 'eng': 'English',
-    'es': 'Spanish', 'spa': 'Spanish',
-    'fr': 'French', 'fre': 'French', 'fra': 'French',
-    'de': 'German', 'ger': 'German', 'deu': 'German',
-    'it': 'Italian', 'ita': 'Italian',
-    'pt': 'Portuguese', 'por': 'Portuguese',
-    'ru': 'Russian', 'rus': 'Russian',
-    'ja': 'Japanese', 'jpn': 'Japanese',
-    'ko': 'Korean', 'kor': 'Korean',
-    'zh': 'Chinese', 'chi': 'Chinese', 'zho': 'Chinese',
-    'ar': 'Arabic', 'ara': 'Arabic',
-    'hi': 'Hindi', 'hin': 'Hindi',
-    'bn': 'Bengali', 'ben': 'Bengali',
-    'ur': 'Urdu', 'urd': 'Urdu',
-    'tr': 'Turkish', 'tur': 'Turkish',
-    'vi': 'Vietnamese', 'vie': 'Vietnamese',
-    'th': 'Thai', 'tha': 'Thai',
-    'id': 'Indonesian', 'ind': 'Indonesian',
-    'nl': 'Dutch', 'dut': 'Dutch', 'nld': 'Dutch',
-    'pl': 'Polish', 'pol': 'Polish',
-    'uk': 'Ukrainian', 'ukr': 'Ukrainian',
-  };
-
-  String? _languageName(String? code) {
-    if (code == null) return null;
-    final normalized = code.toLowerCase();
-    if (normalized.isEmpty || normalized == 'und') return null;
-    return _languageNames[normalized] ?? code.toUpperCase();
+  Widget _row(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: () {
+        onTap();
+        Navigator.pop(context);
+      },
+      splashColor: context.colors.accentSoft,
+      highlightColor: Colors.transparent,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: isSelected
+                  ? context.colors.accent
+                  : context.colors.textMuted,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: isSelected
+                      ? context.colors.textPrimary
+                      : context.colors.textSecondary,
+                  fontWeight:
+                      isSelected ? FontWeight.w600 : FontWeight.normal,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            if (isSelected)
+              Icon(Icons.check_rounded,
+                  color: context.colors.accent, size: 16),
+          ],
+        ),
+      ),
+    );
   }
 }

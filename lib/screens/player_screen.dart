@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../models/video_file.dart';
 import '../presentation/providers/player_provider.dart';
@@ -151,8 +152,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         subtitlesEnabled: s.subtitlesEnabled,
         onSelect: (t) => _notifier.setSubtitleTrack(t),
         onToggle: () => _notifier.toggleSubtitles(),
+        onLoadExternal: _pickExternalSubtitle,
       ),
     );
+  }
+
+  Future<void> _pickExternalSubtitle() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['srt', 'vtt', 'ass', 'ssa', 'sub', 'ttml'],
+    );
+    final path = result?.files.single.path;
+    if (path == null) return;
+    await _notifier.loadExternalSubtitle(path);
   }
 
   // ── Fit mode ───────────────────────────────────────────────────────────────
