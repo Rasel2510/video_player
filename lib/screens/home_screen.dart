@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,8 +6,11 @@ import 'package:file_picker/file_picker.dart';
 import '../core/theme/app_theme.dart';
 import '../models/video_file.dart';
 import '../presentation/widgets/resume_dialog.dart';
+import '../presentation/widgets/library/scan_mode_sheet.dart';
 import '../presentation/providers/theme_provider.dart';
 import '../presentation/providers/player_provider.dart';
+import '../presentation/providers/scan_mode_provider.dart';
+import '../presentation/providers/folders_provider.dart';
 import '../services/media_session_service.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
@@ -29,6 +33,24 @@ class HomeScreen extends ConsumerWidget {
     await RecentFilesService.instance.addRecent(vf);
     if (!context.mounted) return;
     _openVideo(context, vf);
+  }
+
+  void _showScanModeSheet(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ScanModeSheet(
+        selected: ref.read(scanModeProvider),
+        onSelect: (mode) async {
+          if (mode == ref.read(scanModeProvider)) return;
+          await ref.read(scanModeProvider.notifier).set(mode);
+          // Re-scan from scratch with the newly chosen method.
+          await ref.read(foldersProvider.notifier).rescanForModeChange();
+        },
+      ),
+    );
   }
 
   Future<void> _openVideo(BuildContext context, VideoFile vf) async {
@@ -90,6 +112,13 @@ class HomeScreen extends ConsumerWidget {
             ],
           ),
           actions: [
+            // MediaStore / hybrid / file-scanner only matter on Android.
+            if (Platform.isAndroid)
+              IconButton(
+                icon: const Icon(Icons.travel_explore_rounded),
+                tooltip: 'Library scan mode',
+                onPressed: () => _showScanModeSheet(context, ref),
+              ),
             IconButton(
               icon: Icon(themeIcon),
               tooltip: 'Toggle Theme',
