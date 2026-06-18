@@ -455,6 +455,26 @@ class FoldersNotifier extends Notifier<FoldersState> {
     _saveCache(updatedFolders);
   }
 
+  /// Surgically removes multiple videos from the in-memory state and persists the
+  /// updated folder list to cache.
+  void removeVideos(List<String> videoPaths) {
+    final pathSet = videoPaths.toSet();
+    final updatedFolders = state.folders
+        .map((folder) {
+          final updatedVideos =
+              folder.videos.where((v) => !pathSet.contains(v.path)).toList();
+          return VideoFolder(path: folder.path, videos: updatedVideos);
+        })
+        .where((f) => f.videos.isNotEmpty)
+        .toList();
+
+    final updatedNewPaths = Set<String>.from(state.newPaths)
+      ..removeAll(pathSet);
+
+    state = state.copyWith(folders: updatedFolders, newPaths: updatedNewPaths);
+    _saveCache(updatedFolders);
+  }
+
   void reset() => state = const FoldersState();
 }
 
