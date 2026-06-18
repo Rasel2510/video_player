@@ -419,12 +419,26 @@ class FoldersNotifier extends Notifier<FoldersState> {
     }
     _lastFilesystemScan = DateTime.now();
 
+    // Show the same scanning spinner the file-scanner mode shows while the
+    // background walk runs — so hybrid also gives the user "scanning" feedback.
+    // Cleared by _applyFoldersIfChanged when the walk finishes.
+    if (!state.isScanning) {
+      state = state.copyWith(isScanning: true);
+    }
+
     // Rebuild the authoritative union: MediaStore ∪ on-disk videos. Starting
     // from MediaStore (rather than the current state) means a deleted WhatsApp
     // file is dropped here instead of lingering forever.
     final combined = Map<String, VideoFile>.from(mediaByPath);
+    var progress = 0;
     for (final root in _discoverStorageRoots()) {
-      final folders = await FolderScanner.scanFolders(root);
+      final folders = await FolderScanner.scanFolders(
+        root,
+        onProgress: (_) {
+          progress += 1;
+          state = state.copyWith(scanProgress: progress);
+        },
+      );
       for (final f in folders) {
         for (final v in f.videos) {
           combined.putIfAbsent(v.path, () => v);

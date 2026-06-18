@@ -740,7 +740,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     showControls();
   }
 
-  void seekRelative(int seconds) {
+  void seekRelative(int seconds, {bool revealControls = true}) {
     if (_player == null) return;
     if (state.autoPlayCountdown != null) cancelAutoPlay();
     final newPos = state.position + Duration(seconds: seconds);
@@ -748,7 +748,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
         ? Duration.zero
         : (newPos > state.duration ? state.duration : newPos);
     _player!.seek(target);
-    showControls();
+    // Double-tap-to-skip passes revealControls:false — the seek-flash already
+    // gives feedback, so the full control overlay shouldn't pop up.
+    if (revealControls) showControls();
   }
 
   void beginSeek(double value) {

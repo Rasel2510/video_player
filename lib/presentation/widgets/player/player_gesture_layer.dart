@@ -86,9 +86,13 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
             if (isLocked) return;
             final isLeft = details.globalPosition.dx < size.width / 2;
             if (isLeft) {
-              ref.read(playerProvider.notifier).seekRelative(-10);
+              ref
+                  .read(playerProvider.notifier)
+                  .seekRelative(-10, revealControls: false);
             } else {
-              ref.read(playerProvider.notifier).seekRelative(10);
+              ref
+                  .read(playerProvider.notifier)
+                  .seekRelative(10, revealControls: false);
             }
             _triggerSeekFlash(isLeft);
           },
