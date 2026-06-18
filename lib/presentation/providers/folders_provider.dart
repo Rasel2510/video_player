@@ -244,6 +244,12 @@ class FoldersNotifier extends Notifier<FoldersState> {
   // can ignore changes when the user has switched to pure file-scanner mode.
   LibraryScanMode _scanMode = LibraryScanMode.hybrid;
 
+  // Battery: the recursive filesystem walk is the only non-trivial cost here,
+  // and a resume fires it. Skip it if we walked within this window (unless the
+  // caller forces it), so flicking back into the app doesn't re-walk storage.
+  DateTime? _lastFilesystemScan;
+  static const _minRescanGap = Duration(minutes: 2);
+
   // MediaStore is Android-only. Off Android we always use the file scanner.
   Future<LibraryScanMode> _resolveScanMode() async {
     if (!Platform.isAndroid) return LibraryScanMode.fileScanner;
@@ -274,6 +280,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
       await _mediaStoreRefresh(
         showScanning: state.folders.isEmpty,
         withFilesystemMerge: _scanMode == LibraryScanMode.hybrid,
+        forceFilesystem: forceScan,
       );
       return;
     }
@@ -338,6 +345,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
   Future<void> _mediaStoreRefresh({
     required bool showScanning,
     bool withFilesystemMerge = false,
+    bool forceFilesystem = false,
   }) async {
     if (_refreshing) {
       _refreshPending = true;
@@ -358,12 +366,14 @@ class FoldersNotifier extends Notifier<FoldersState> {
       final byPath = <String, VideoFile>{for (final v in videos) v.path: v};
       await _applyFolders(_groupByFolder(byPath.values.toList()));
 
-      // Only walk the filesystem on explicit loads/resumes (not on every live
-      // MediaStore tick) — this is where the old code already scanned, so the
-      // battery cost is unchanged, and it's the path that surfaces WhatsApp/
-      // Telegram videos MediaStore can't see.
+      // The filesystem walk (the only real battery cost) surfaces WhatsApp/
+      // Telegram videos MediaStore can't see. Throttled so back-to-back resumes
+      // don't re-walk storage; an empty library or an explicit refresh forces it.
       if (withFilesystemMerge) {
-        await _filesystemMerge(byPath);
+        await _filesystemMerge(
+          byPath,
+          force: forceFilesystem || state.folders.isEmpty,
+        );
       }
     } finally {
       _refreshing = false;
@@ -378,7 +388,19 @@ class FoldersNotifier extends Notifier<FoldersState> {
   /// MediaStore) and merges any videos MediaStore missed into the library.
   /// [byPath] already holds the MediaStore results, keyed by path, so we only
   /// re-render when the walk actually turns up something extra.
-  Future<void> _filesystemMerge(Map<String, VideoFile> byPath) async {
+  Future<void> _filesystemMerge(
+    Map<String, VideoFile> byPath, {
+    required bool force,
+  }) async {
+    // Battery: skip the walk if we did one recently and nothing is forcing it.
+    final last = _lastFilesystemScan;
+    if (!force &&
+        last != null &&
+        DateTime.now().difference(last) < _minRescanGap) {
+      return;
+    }
+    _lastFilesystemScan = DateTime.now();
+
     final roots = _discoverStorageRoots();
     var foundExtra = false;
     for (final root in roots) {
@@ -448,11 +470,20 @@ class FoldersNotifier extends Notifier<FoldersState> {
   }
 
   Future<void> _backgroundCheck(List<String> roots) async {
+    // Battery: the change-check itself walks the tree, so throttle it the same
+    // way — a resume within the window skips re-checking entirely.
+    final last = _lastFilesystemScan;
+    if (last != null && DateTime.now().difference(last) < _minRescanGap) {
+      return;
+    }
+    _lastFilesystemScan = DateTime.now();
     final changed = await _hasNewContent();
     if (changed) await _fullScan(roots);
   }
 
   Future<void> _fullScan(List<String> roots) async {
+    // Mark the walk so the throttle window starts from this scan.
+    _lastFilesystemScan = DateTime.now();
     state = state.copyWith(
       isScanning: true,
       folders: state.folders,
