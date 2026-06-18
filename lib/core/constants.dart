@@ -4,4 +4,9 @@
 abstract final class AppConstants {
   static const mediaSessionChannel =
       'com.example.flutter_video_player/media_session';
+
+  /// Native MediaStore bridge — fast video index + live ContentObserver
+  /// notifications so newly downloaded videos appear without a filesystem scan.
+  static const mediaStoreChannel =
+      'com.example.flutter_video_player/media_store';
 }
