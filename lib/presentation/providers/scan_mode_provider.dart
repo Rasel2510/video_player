@@ -34,13 +34,13 @@ final scanModeProvider =
 });
 
 class ScanModeNotifier extends StateNotifier<LibraryScanMode> {
-  ScanModeNotifier() : super(LibraryScanMode.hybrid) {
-    _load();
-  }
+  // Seed from the synchronously-cached value (warmed by preload() in main) so
+  // the correct mode is shown on the first frame — no flash of the default.
+  ScanModeNotifier() : super(_initial());
 
-  Future<void> _load() async {
-    final idx = await PlayerPreferencesService.instance.loadScanModeIndex();
-    state = LibraryScanMode.values[
+  static LibraryScanMode _initial() {
+    final idx = PlayerPreferencesService.instance.scanModeIndexCached;
+    return LibraryScanMode.values[
         idx.clamp(0, LibraryScanMode.values.length - 1)];
   }
 

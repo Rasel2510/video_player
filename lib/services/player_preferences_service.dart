@@ -74,11 +74,33 @@ class PlayerPreferencesService {
   // ── Library scan mode ──────────────────────────────────────────────────────
   // 0 = hybrid (default), 1 = mediaStore, 2 = fileScanner. See LibraryScanMode.
 
+  // Synchronously-readable copy so the UI and the library load can use the saved
+  // mode on the very first frame instead of flashing the default while an async
+  // read resolves. Populated by [preload] (called in main before runApp) and
+  // kept in sync by [saveScanModeIndex].
+  int _scanModeIndexCache = 0;
+  int get scanModeIndexCached => _scanModeIndexCache;
+
+  /// Warms the SharedPreferences instance and caches the scan-mode index so it
+  /// can be read synchronously from the first frame. Call once during startup.
+  Future<void> preload() async {
+    try {
+      _scanModeIndexCache = (await _p).getInt(_scanModeKey) ?? 0;
+    } catch (_) {}
+  }
+
   Future<int> loadScanModeIndex() async {
-    try { return (await _p).getInt(_scanModeKey) ?? 0; } catch (_) { return 0; }
+    try {
+      final idx = (await _p).getInt(_scanModeKey) ?? 0;
+      _scanModeIndexCache = idx;
+      return idx;
+    } catch (_) {
+      return 0;
+    }
   }
 
   Future<void> saveScanModeIndex(int index) async {
+    _scanModeIndexCache = index;
     try { await (await _p).setInt(_scanModeKey, index); } catch (_) {}
   }
 }

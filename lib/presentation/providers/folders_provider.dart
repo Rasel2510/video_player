@@ -251,9 +251,11 @@ class FoldersNotifier extends Notifier<FoldersState> {
   static const _minRescanGap = Duration(minutes: 2);
 
   // MediaStore is Android-only. Off Android we always use the file scanner.
-  Future<LibraryScanMode> _resolveScanMode() async {
+  // Reads the synchronously-cached index (warmed by preload() in main) so the
+  // first load already uses the saved mode — no flash of hybrid on cold start.
+  LibraryScanMode _resolveScanMode() {
     if (!Platform.isAndroid) return LibraryScanMode.fileScanner;
-    final idx = await PlayerPreferencesService.instance.loadScanModeIndex();
+    final idx = PlayerPreferencesService.instance.scanModeIndexCached;
     return LibraryScanMode.values[
         idx.clamp(0, LibraryScanMode.values.length - 1)];
   }
@@ -264,7 +266,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
   Future<void> load({bool forceScan = false}) async {
     if (state.isScanning) return;
 
-    _scanMode = await _resolveScanMode();
+    _scanMode = _resolveScanMode();
 
     // Hybrid / MediaStore: use the MediaStore index (fast) + live observer.
     // Hybrid additionally walks the filesystem to catch .nomedia folders

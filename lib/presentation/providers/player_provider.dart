@@ -178,10 +178,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _leftScreen = false;
     _hasStartedPlaying = false;
 
-    // Load persisted prefs, device volume, and brightness all in parallel —
-    // FIX #OPT-5: brightness reads were previously sequential after this block,
-    // adding ~20 ms of latency on every player open.
-    final results = await Future.wait([
+    // FIX #OPT-OPEN: Kick off the prefs / device-volume / brightness reads in
+    // parallel with opening the file instead of blocking the decode on them.
+    // The native decode (the slow part) now overlaps these ~tens of ms of I/O,
+    // and the values are applied via copyWith once they resolve.
+    final prefsFuture = Future.wait([
       PlayerPreferencesService.instance.loadFitModeIndex(),     // [0]
       PlayerPreferencesService.instance.loadSpeed(),             // [1]
       VolumeService.instance.getDeviceVolume(),                  // [2]
@@ -191,6 +192,44 @@ class PlayerNotifier extends Notifier<PlayerState> {
           .catchError((_) => null),
       PlayerPreferencesService.instance.loadLoopModeIndex(),     // [5]
     ]);
+
+    _disposeInternal();
+    _currentPath = filePath;
+    _currentArtPath = null;
+    _externalSubtitles.clear();
+
+    // Clean slate for the new video. Prefs (volume/fit/speed/brightness/loop)
+    // are merged in via copyWith below — using copyWith rather than a second
+    // full PlayerState assignment means an early stream event (e.g. onReady
+    // setting isInitialized) isn't clobbered when the prefs land.
+    state = PlayerState(folderVideos: folderVideos, currentIndex: initialIndex);
+
+    _player = Player();
+    _videoController = VideoController(_player!);
+
+    _listenStreams(onReady: () {
+      state = state.copyWith(isInitialized: true);
+      _startHideTimer();
+      _syncMediaSessionMetadata();
+      if (resumeFrom != null && resumeFrom > Duration.zero) {
+        Future.delayed(const Duration(milliseconds: 300), () {
+          _player?.seek(resumeFrom);
+        });
+      }
+    });
+
+    // Lock-screen / notification controls. setActionHandler overwrites any
+    // previous handler so a re-entrant init() doesn't leak handlers.
+    MediaSessionService.setActionHandler(
+      onAction: _handleMediaAction,
+      onSeek: (pos) => _player?.seek(pos),
+    );
+
+    // Start decoding immediately — overlaps the prefs reads above and the
+    // settings applied below.
+    final openFuture = _player!.open(Media(filePath));
+
+    final results = await prefsFuture;
     final fitModeIdx    = results[0] as int;
     final savedSpeed    = results[1] as double;
     final deviceVol     = results[2] as double;
@@ -200,34 +239,13 @@ class PlayerNotifier extends Notifier<PlayerState> {
     final fitMode       = FitMode.values[fitModeIdx.clamp(0, FitMode.values.length - 1)];
     final loopMode      = LoopMode.values[loopModeIdx.clamp(0, LoopMode.values.length - 1)];
 
-    final activeBri  = savedBri ?? currentBri;
-
-    state = PlayerState(
-      folderVideos: folderVideos,
-      currentIndex: initialIndex,
+    state = state.copyWith(
       volume: deviceVol * 100,
       fitMode: fitMode,
       playbackSpeed: savedSpeed,
-      brightness: activeBri,
+      brightness: savedBri ?? currentBri,
       loopMode: loopMode,
     );
-
-    _disposeInternal();
-    _currentPath = filePath;
-    _currentArtPath = null;
-    _externalSubtitles.clear();
-
-    _player = Player();
-    _videoController = VideoController(_player!);
-
-    // Apply the resolved brightness (no-op if it equals the system default).
-    if (savedBri != null) {
-      try { await _brightness.setScreenBrightness(savedBri); } catch (_) {}
-    }
-
-    // Always run media_kit at full internal volume — device volume controls output.
-    await _player!.setVolume(100);
-    await _player!.setRate(savedSpeed);
 
     // FIX #OPT-10: removeListener first so that a re-entrant init() (e.g. after
     // an error retry) doesn't silently orphan the previous global slot.
@@ -252,27 +270,15 @@ class PlayerNotifier extends Notifier<PlayerState> {
       }
     });
 
-    // Lock-screen / notification controls. setActionHandler overwrites any
-    // previous handler — same single-slot semantics as VolumeService above —
-    // so a re-entrant init() doesn't leak handlers from a prior video.
-    MediaSessionService.setActionHandler(
-      onAction: _handleMediaAction,
-      onSeek: (pos) => _player?.seek(pos),
-    );
+    // Apply player + screen settings while the file is already opening.
+    await _player!.setVolume(100);
+    await _player!.setRate(savedSpeed);
+    if (savedBri != null) {
+      try { await _brightness.setScreenBrightness(savedBri); } catch (_) {}
+    }
 
-    _listenStreams(onReady: () {
-      state = state.copyWith(isInitialized: true);
-      _startHideTimer();
-      _syncMediaSessionMetadata();
-      if (resumeFrom != null && resumeFrom > Duration.zero) {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          _player?.seek(resumeFrom);
-        });
-      }
-    });
-
-    await _player!.open(Media(filePath));
-    await WakelockPlus.enable();
+    await openFuture;
+    WakelockPlus.enable(); // fire-and-forget — never gated the first frame
   }
 
   // ── Stream listeners ───────────────────────────────────────────────────────
