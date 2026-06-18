@@ -13,6 +13,7 @@ import '../services/player_preferences_service.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
 import '../services/thumbnail_service.dart';
+import '../core/utils/duration_formatter.dart';
 import '../presentation/widgets/folder_videos/no_results.dart';
 import '../presentation/widgets/folder_videos/resume_fab.dart';
 import '../presentation/widgets/folder_videos/sort_option.dart';
@@ -50,6 +51,222 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchQuery = '';
   bool _searchOpen = false;
+
+  // Selection
+  bool _selectionMode = false;
+  final Set<String> _selectedPaths = {};
+
+  void _enterSelectionMode(VideoFile? initialVideo) {
+    setState(() {
+      _selectionMode = true;
+      if (initialVideo != null) {
+        _selectedPaths.add(initialVideo.path);
+      }
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selectedPaths.clear();
+    });
+  }
+
+  void _toggleSelection(String path) {
+    setState(() {
+      if (_selectedPaths.contains(path)) {
+        _selectedPaths.remove(path);
+      } else {
+        _selectedPaths.add(path);
+      }
+    });
+  }
+
+  void _selectAll(List<VideoFile> displayedVideos) {
+    setState(() {
+      final allPaths = displayedVideos.map((v) => v.path).toList();
+      if (_selectedPaths.length == allPaths.length) {
+        _selectedPaths.clear();
+      } else {
+        _selectedPaths.addAll(allPaths);
+      }
+    });
+  }
+
+  Future<void> _confirmDeleteSelected(List<VideoFile> displayedVideos) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Delete ${_selectedPaths.length} videos?'),
+        content: const Text(
+          'Selected videos will be permanently removed from your device.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: context.colors.errorRed,
+              foregroundColor: Colors.white,
+              shape: const StadiumBorder(),
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final pathsToDelete = _selectedPaths.toList();
+    
+    // Perform deletions in parallel
+    await Future.wait(pathsToDelete.map((path) async {
+      try {
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
+    }));
+
+    // Clean up caches
+    await Future.wait(pathsToDelete.map((path) async {
+      await Future.wait([
+        PositionService.instance.clear(path),
+        ThumbnailService.instance.removeThumbnail(path),
+        DurationCacheService.instance.removeDuration(path),
+      ]);
+    }));
+
+    setState(() {
+      _deletedPaths.addAll(pathsToDelete);
+      for (final path in pathsToDelete) {
+        _positions.remove(path);
+        _durations.remove(path);
+      }
+      _sortedCache = null; // force re-sort
+    });
+
+    ref.read(foldersProvider.notifier).removeVideos(pathsToDelete);
+    _exitSelectionMode();
+
+    // If no videos remain, pop back
+    final remaining = widget.folder.videos
+        .where((v) => !_deletedPaths.contains(v.path))
+        .length;
+    if (remaining == 0 && mounted) {
+      Navigator.pop(context);
+    }
+  }
+
+  void _showVideoDetails(VideoFile vf) {
+    final dur = _durations[vf.path];
+    final durStr = dur != null ? DurationFormatter.format(dur) : 'Unknown';
+    final sizeStr = vf.sizeLabel;
+    final extension = vf.extensionLabel;
+    final dateStr = '${vf.modified.year}-${vf.modified.month.toString().padLeft(2, '0')}-${vf.modified.day.toString().padLeft(2, '0')} '
+        '${vf.modified.hour.toString().padLeft(2, '0')}:${vf.modified.minute.toString().padLeft(2, '0')}';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: ctx.colors.panel,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + MediaQuery.of(ctx).padding.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: ctx.colors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: ctx.colors.accent, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Video Details',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: ctx.colors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildDetailItem(ctx, 'Name', vf.name),
+              _buildDetailItem(ctx, 'Format', extension),
+              _buildDetailItem(ctx, 'Size', sizeStr),
+              _buildDetailItem(ctx, 'Duration', durStr),
+              _buildDetailItem(ctx, 'Date Modified', dateStr),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _buildDetailItem(ctx, 'Path', vf.path)),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: Icon(Icons.copy_rounded, color: ctx.colors.textSecondary, size: 18),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: vf.path));
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(
+                          content: Text('Path copied to clipboard'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailItem(BuildContext ctx, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: ctx.colors.textMuted,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: ctx.colors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -253,6 +470,14 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
           Navigator.pop(context);
           Share.shareXFiles([XFile(vf.path)], text: vf.name);
         },
+        onDetails: () {
+          Navigator.pop(context);
+          _showVideoDetails(vf);
+        },
+        onSelect: () {
+          Navigator.pop(context);
+          _enterSelectionMode(vf);
+        },
         onCopyPath: () {
           Navigator.pop(context);
           Clipboard.setData(ClipboardData(text: vf.path));
@@ -387,51 +612,112 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
       backgroundColor: context.colors.bg,
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.pop(context),
+          icon: Icon(_selectionMode ? Icons.close_rounded : Icons.arrow_back_rounded),
+          onPressed: _selectionMode
+              ? _exitSelectionMode
+              : () => Navigator.pop(context),
         ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.folder.name,
-              style: TextStyle(
-                  fontSize: 15,
+        title: _selectionMode
+            ? Text(
+                '${_selectedPaths.length} selected',
+                style: TextStyle(
+                  fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: context.colors.textPrimary,
-                  letterSpacing: -0.2),
-            ),
-            Text(
-              '${display.length}${_searchQuery.isNotEmpty ? ' of ${sorted.length}' : ''} '
-              'video${sorted.length == 1 ? '' : 's'}'
-              ' · ${widget.folder.totalSizeLabel}',
-              style: context.textStyles.caption,
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              _searchOpen ? Icons.search_off_rounded : Icons.search_rounded,
-              size: 20,
-              color: _searchOpen
-                  ? context.colors.accent
-                  : context.colors.textSecondary,
-            ),
-            tooltip: _searchOpen ? 'Close search' : 'Search',
-            onPressed: _toggleSearch,
-          ),
-          IconButton(
-            icon: const Icon(Icons.sort_rounded),
-            tooltip: 'Sort',
-            onPressed: _showSortSheet,
-          ),
-        ],
+                ),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.folder.name,
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: context.colors.textPrimary,
+                        letterSpacing: -0.2),
+                  ),
+                  Text(
+                    '${display.length}${_searchQuery.isNotEmpty ? ' of ${sorted.length}' : ''} '
+                    'video${sorted.length == 1 ? '' : 's'}'
+                    ' · ${widget.folder.totalSizeLabel}',
+                    style: context.textStyles.caption,
+                  ),
+                ],
+              ),
+        actions: _selectionMode
+            ? [
+                IconButton(
+                  icon: Icon(
+                    _selectedPaths.length == display.length
+                        ? Icons.select_all_rounded
+                        : Icons.checklist_rounded,
+                  ),
+                  tooltip: _selectedPaths.length == display.length ? 'Deselect all' : 'Select all',
+                  onPressed: () => _selectAll(display),
+                ),
+              ]
+            : [
+                IconButton(
+                  icon: Icon(
+                    _searchOpen ? Icons.search_off_rounded : Icons.search_rounded,
+                    size: 20,
+                    color: _searchOpen
+                        ? context.colors.accent
+                        : context.colors.textSecondary,
+                  ),
+                  tooltip: _searchOpen ? 'Close search' : 'Search',
+                  onPressed: _toggleSearch,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.sort_rounded),
+                  tooltip: 'Sort',
+                  onPressed: _showSortSheet,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.checklist_rounded),
+                  tooltip: 'Select multiple',
+                  onPressed: () => _enterSelectionMode(null),
+                ),
+              ],
       ),
-      floatingActionButton: last != null
-          ? ResumeFab(
+      floatingActionButton: (_selectionMode || last == null)
+          ? null
+          : ResumeFab(
               position: _positions[last.path]!,
               onTap: () => _openVideo(last, sorted, forceResume: true),
+            ),
+      bottomNavigationBar: _selectionMode
+          ? Container(
+              decoration: BoxDecoration(
+                color: context.colors.surface,
+                border: Border(
+                  top: BorderSide(color: context.colors.divider),
+                ),
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: FilledButton.icon(
+                    onPressed: _selectedPaths.isEmpty
+                        ? null
+                        : () => _confirmDeleteSelected(display),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: context.colors.errorRed,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: context.colors.divider,
+                      disabledForegroundColor: context.colors.textMuted,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: const StadiumBorder(),
+                    ),
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: Text(
+                      'Delete Selected (${_selectedPaths.length})',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                  ),
+                ),
+              ),
             )
           : null,
       body: Column(
@@ -473,8 +759,12 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
                     ? NoResults(query: _searchQuery)
                     : const SizedBox()
                 : ListView.builder(
-                    padding:
-                        EdgeInsets.fromLTRB(16, 8, 16, last != null ? 96 : 16),
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      8,
+                      16,
+                      (_selectionMode ? 88 : (last != null ? 96 : 16)) + MediaQuery.of(context).padding.bottom,
+                    ),
                     itemCount: display.length,
                     itemBuilder: (_, i) {
                       final vf = display[i];
@@ -488,6 +778,9 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
                         totalDur: _durations[vf.path],
                         isNew: isNew,
                         sortBy: _sortBy,
+                        selectionMode: _selectionMode,
+                        isSelected: _selectedPaths.contains(vf.path),
+                        onSelectToggle: () => _toggleSelection(vf.path),
                         onTap: () => _openVideo(vf, sorted),
                         onLongPress: () => _showVideoOptions(vf, sorted),
                       );

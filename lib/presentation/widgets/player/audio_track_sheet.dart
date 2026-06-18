@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/track_labels.dart';
 
 class AudioTrackSheet extends StatelessWidget {
   final List<AudioTrack> tracks;
@@ -14,8 +15,21 @@ class AudioTrackSheet extends StatelessWidget {
     required this.onSelect,
   });
 
+  bool get _audioDisabled => selectedTrack?.id == 'no';
+
+  /// Index of the real track to highlight. media_kit may report the active
+  /// track as the synthetic 'auto' entry (which we strip from the list) before
+  /// resolving it to a concrete track, so when the reported track isn't in the
+  /// list we fall back to the first track — that's what's actually playing.
+  int _selectedIndex() {
+    final id = selectedTrack?.id;
+    final i = tracks.indexWhere((t) => t.id == id);
+    return i < 0 ? 0 : i;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final selectedIndex = _selectedIndex();
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -71,54 +85,34 @@ class AudioTrackSheet extends StatelessWidget {
             )
           else
             Flexible(
+              // One row per track, plus a leading "Disabled" row (index 0) that
+              // mutes the audio track entirely.
               child: ListView.builder(
                 shrinkWrap: true,
-                itemCount: tracks.length,
+                itemCount: tracks.length + 1,
                 itemBuilder: (context, index) {
-                  final track = tracks[index];
-                  final isSelected = track == selectedTrack ||
-                      (selectedTrack == null && index == 0);
-
-                  return InkWell(
-                    onTap: () {
-                      onSelect(track);
-                      Navigator.pop(context);
-                    },
-                    splashColor: context.colors.accentSoft,
-                    highlightColor: Colors.transparent,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 14),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.audiotrack_outlined,
-                            size: 18,
-                            color: isSelected
-                                ? context.colors.accent
-                                : context.colors.textMuted,
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Text(
-                              _getTrackLabel(track, index),
-                              style: TextStyle(
-                                color: isSelected
-                                    ? context.colors.textPrimary
-                                    : context.colors.textSecondary,
-                                fontWeight: isSelected
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          if (isSelected)
-                            Icon(Icons.check_rounded,
-                                color: context.colors.accent, size: 16),
-                        ],
-                      ),
+                  if (index == 0) {
+                    return _row(
+                      context,
+                      icon: Icons.volume_off_rounded,
+                      label: 'Disabled',
+                      isSelected: _audioDisabled,
+                      onTap: () => onSelect(AudioTrack.no()),
+                    );
+                  }
+                  final trackIndex = index - 1;
+                  final track = tracks[trackIndex];
+                  return _row(
+                    context,
+                    icon: Icons.audiotrack_outlined,
+                    label: TrackLabels.trackLabel(
+                      title: track.title,
+                      language: track.language,
+                      index: trackIndex,
+                      total: tracks.length,
                     ),
+                    isSelected: !_audioDisabled && trackIndex == selectedIndex,
+                    onTap: () => onSelect(track),
                   );
                 },
               ),
@@ -129,14 +123,51 @@ class AudioTrackSheet extends StatelessWidget {
     );
   }
 
-  String _getTrackLabel(AudioTrack track, int index) {
-    if (track.id == 'no') return 'Disabled';
-    if (track.id == 'auto') return 'Auto';
-    final lang = track.language?.toUpperCase();
-    final title = track.title;
-    if (lang != null && title != null) return '$lang — $title';
-    if (lang != null) return 'Track $index ($lang)';
-    if (title != null) return title;
-    return 'Audio Track $index';
+  Widget _row(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: () {
+        onTap();
+        Navigator.pop(context);
+      },
+      splashColor: context.colors.accentSoft,
+      highlightColor: Colors.transparent,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: isSelected
+                  ? context.colors.accent
+                  : context.colors.textMuted,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: isSelected
+                      ? context.colors.textPrimary
+                      : context.colors.textSecondary,
+                  fontWeight:
+                      isSelected ? FontWeight.w600 : FontWeight.normal,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            if (isSelected)
+              Icon(Icons.check_rounded,
+                  color: context.colors.accent, size: 16),
+          ],
+        ),
+      ),
+    );
   }
 }

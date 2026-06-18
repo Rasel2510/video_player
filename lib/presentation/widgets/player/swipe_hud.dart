@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/volume_color.dart';
 import '../../providers/player_provider.dart';
 
 class SwipeHud extends StatelessWidget {
@@ -14,13 +15,20 @@ class SwipeHud extends StatelessWidget {
 
   const SwipeHud({super.key, required this.gesture, required this.value});
 
+  static const Color _brightnessColor = Color(0xFFFFE066); // warm yellow
+
   @override
   Widget build(BuildContext context) {
     final isBrightness = gesture == SwipeGesture.brightness;
 
-    // ── Volume is boost when the normalised value exceeds 0.5 ──────────────
-    // swipeValue = volume / 200, so value > 0.5  ⟺  volume > 100 %
-    final isBoosted = !isBrightness && value > 0.5;
+    // ── Colour ───────────────────────────────────────────────────────────────
+    // Brightness: warm yellow.
+    // Volume ≤ 100 %: accent (blue); > 100 %: lerp blue → orange, getting more
+    // orange the higher it goes (swipeValue = volume / 200, so value * 200 is
+    // the real volume %). Shared with the volume sheet via VolumeColor.
+    final Color color = isBrightness
+        ? _brightnessColor
+        : VolumeColor.forVolume(value * 200, context.colors.accent);
 
     // ── Icon ────────────────────────────────────────────────────────────────
     final IconData icon;
@@ -38,14 +46,6 @@ class SwipeHud extends StatelessWidget {
               : Icons.volume_off_rounded;
     }
 
-    // ── Color: orange for boosted volume, yellow for brightness, blue normal ─
-    final Color normalColor = context.colors.accent;
-    final Color boostColor  = context.colors.accent; // Or use a specific boost color from theme if available, otherwise just use accent or accentGlow
-    const Color brightnessColor = Color(0xFFFFE066);
-    final Color color = isBrightness
-        ? brightnessColor
-        : (isBoosted ? boostColor : normalColor);
-
     // ── Percentage text ─────────────────────────────────────────────────────
     // Brightness: value is 0–1  → multiply by 100.
     // Volume    : value is volume/200 → multiply by 200 to get real volume %.
@@ -62,8 +62,7 @@ class SwipeHud extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0xB8000000),
           borderRadius: BorderRadius.circular(22),
-          border:
-              Border.all(color: const Color(0x1AFFFFFF), width: 1),
+          border: Border.all(color: const Color(0x1AFFFFFF), width: 1),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -71,25 +70,23 @@ class SwipeHud extends StatelessWidget {
             Icon(icon, color: color, size: 20),
             const SizedBox(height: 8),
             // ── Progress bar ──────────────────────────────────────────────
-            // For boost: split bar — blue up to 50 % mark, orange above it.
-            // For normal (brightness or non-boosted volume): single colour.
+            // Single bar whose fill colour shifts from blue (≤100 %) toward
+            // orange as the boost ratio climbs to 200 %.
             SizedBox(
               width: 4,
               height: 90,
-              child: isBoosted
-                  ? _BoostProgressBar(value: value.clamp(0.0, 1.0), normalColor: normalColor, boostColor: boostColor)
-                  : ClipRRect(
-                      borderRadius: BorderRadius.circular(2),
-                      child: RotatedBox(
-                        quarterTurns: -1,
-                        child: LinearProgressIndicator(
-                          value: value.clamp(0.0, 1.0),
-                          backgroundColor: const Color(0x2EFFFFFF),
-                          valueColor: AlwaysStoppedAnimation(color),
-                          minHeight: 4,
-                        ),
-                      ),
-                    ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: RotatedBox(
+                  quarterTurns: -1,
+                  child: LinearProgressIndicator(
+                    value: value.clamp(0.0, 1.0),
+                    backgroundColor: const Color(0x2EFFFFFF),
+                    valueColor: AlwaysStoppedAnimation(color),
+                    minHeight: 4,
+                  ),
+                ),
+              ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -106,92 +103,4 @@ class SwipeHud extends StatelessWidget {
       ),
     );
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Split bar: blue (normal) region covers 0–50 %, orange (boost) covers 50–100 %
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _BoostProgressBar extends StatelessWidget {
-  final double value; // 0.0 – 1.0
-  final Color normalColor;
-  final Color boostColor;
-
-  const _BoostProgressBar({
-    required this.value,
-    required this.normalColor,
-    required this.boostColor,
-  });
-
-  @override
-  Widget build(BuildContext context) =>
-      // RepaintBoundary isolates the custom-painted boost bar into its own
-      // layer so surrounding widgets (icon, text) don't trigger its repaint.
-      RepaintBoundary(child: CustomPaint(painter: _BoostBarPainter(
-        value: value,
-        normalColor: normalColor,
-        boostColor: boostColor,
-      )));
-}
-
-class _BoostBarPainter extends CustomPainter {
-  final double value; // 0.0 – 1.0, where 0.5 == device max (100 %)
-  final Color normalColor;
-  final Color boostColor;
-
-  const _BoostBarPainter({
-    required this.value,
-    required this.normalColor,
-    required this.boostColor,
-  });
-
-  static const Color _bgColor     = Color(0x2EFFFFFF); // 18 % white
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Background track
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(2)),
-      Paint()..color = _bgColor,
-    );
-
-    if (value <= 0.0) return;
-
-    // Bar is drawn bottom-up.
-    final double filled = size.height * value;
-    final double midH   = size.height * 0.5; // the 50 % / device-max mark
-
-    if (value <= 0.5) {
-      // Only normal (blue) region is filled.
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(0, size.height - filled, size.width, filled),
-          const Radius.circular(2),
-        ),
-        Paint()..color = normalColor,
-      );
-    } else {
-      // Full normal (blue) half at the bottom
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(0, midH, size.width, midH),
-          const Radius.circular(2),
-        ),
-        Paint()..color = normalColor,
-      );
-      // Boost (orange) region from midH upward
-      final double boostH   = filled - midH;
-      final double boostTop = size.height - filled;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(0, boostTop, size.width, boostH),
-          const Radius.circular(2),
-        ),
-        Paint()..color = boostColor,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_BoostBarPainter old) => old.value != value;
 }

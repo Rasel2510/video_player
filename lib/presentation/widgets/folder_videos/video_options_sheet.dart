@@ -8,6 +8,8 @@ class VideoOptionsSheet extends StatelessWidget {
   final bool hasResume;
   final VoidCallback onPlay;
   final VoidCallback onShare;
+  final VoidCallback onDetails;
+  final VoidCallback onSelect;
   final VoidCallback onCopyPath;
   final VoidCallback? onClearResume;
   final VoidCallback onDelete;
@@ -18,6 +20,8 @@ class VideoOptionsSheet extends StatelessWidget {
     required this.hasResume,
     required this.onPlay,
     required this.onShare,
+    required this.onDetails,
+    required this.onSelect,
     required this.onCopyPath,
     this.onClearResume,
     required this.onDelete,
@@ -80,6 +84,14 @@ class VideoOptionsSheet extends StatelessWidget {
                     icon: Icons.share_rounded,
                     label: 'Share',
                     onTap: onShare),
+                OptionRow(
+                    icon: Icons.info_outline_rounded,
+                    label: 'Details',
+                    onTap: onDetails),
+                OptionRow(
+                    icon: Icons.checklist_rounded,
+                    label: 'Select',
+                    onTap: onSelect),
                 OptionRow(
                     icon: Icons.copy_rounded,
                     label: 'Copy path',

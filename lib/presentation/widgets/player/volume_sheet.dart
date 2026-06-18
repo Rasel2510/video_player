@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/volume_color.dart';
 
 class VolumeSheet extends StatefulWidget {
   final double volume; // 0.0 – 200.0
@@ -18,8 +19,8 @@ class VolumeSheet extends StatefulWidget {
 class _VolumeSheetState extends State<VolumeSheet> {
   late double _volume;
 
-  static const Color _boostColor     = Color(0xFFFF8C00);
-  static const Color _boostColorSoft = Color(0x33FF8C00);
+  static const Color _boostColor     = VolumeColor.boost;
+  static const Color _boostColorSoft = VolumeColor.boostSoft;
 
   @override
   void initState() {
@@ -29,8 +30,10 @@ class _VolumeSheetState extends State<VolumeSheet> {
 
   bool get _isBoosted => _volume > 100.0;
 
+  // Blue at ≤100 %, shifting toward orange the further past 100 % the volume
+  // is pushed (fully orange at 200 %) — matches the swipe HUD gauge.
   Color _accent(BuildContext context) =>
-      _isBoosted ? _boostColor : context.colors.accent;
+      VolumeColor.forVolume(_volume, context.colors.accent);
 
   Color _accentSoft(BuildContext context) =>
       _isBoosted ? _boostColorSoft : context.colors.accentSoft;

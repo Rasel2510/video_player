@@ -15,6 +15,9 @@ class VideoCard extends StatelessWidget {
   final SortOption sortBy;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final bool selectionMode;
+  final bool isSelected;
+  final VoidCallback? onSelectToggle;
 
   const VideoCard({
     super.key,
@@ -25,6 +28,9 @@ class VideoCard extends StatelessWidget {
     this.totalDur,
     this.isNew = false,
     this.sortBy = SortOption.name,
+    this.selectionMode = false,
+    this.isSelected = false,
+    this.onSelectToggle,
   });
 
   String get _subtitle {
@@ -60,8 +66,8 @@ class VideoCard extends StatelessWidget {
         borderRadius: AppRadius.md,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: onTap,
-          onLongPress: onLongPress,
+          onTap: selectionMode ? onSelectToggle : onTap,
+          onLongPress: selectionMode ? onSelectToggle : onLongPress,
           splashColor: context.colors.accentSoft,
           highlightColor: Colors.transparent,
           child: Column(
@@ -70,6 +76,18 @@ class VideoCard extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
                 child: Row(
                   children: [
+                    if (selectionMode) ...[
+                      Icon(
+                        isSelected
+                            ? Icons.check_circle_rounded
+                            : Icons.circle_outlined,
+                        color: isSelected
+                            ? context.colors.accent
+                            : context.colors.textSecondary,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                    ],
                     ClipRRect(
                       borderRadius: AppRadius.sm,
                       child: VideoThumbnailWidget(
@@ -121,8 +139,16 @@ class VideoCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    Icon(Icons.chevron_right_rounded,
-                        size: 18, color: context.colors.textMuted),
+                    if (!selectionMode)
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: onLongPress,
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Icon(Icons.more_vert_rounded,
+                              size: 20, color: context.colors.textMuted),
+                        ),
+                      ),
                   ],
                 ),
               ),

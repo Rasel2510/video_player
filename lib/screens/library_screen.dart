@@ -285,8 +285,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             child: displayFolders.isEmpty
                 ? NoResults(query: _searchQuery)
                 : ListView.builder(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      8,
+                      16,
+                      8 + MediaQuery.of(context).padding.bottom,
+                    ),
                     itemCount: displayFolders.length,
                     itemBuilder: (_, i) {
                       final folder     = displayFolders[i];

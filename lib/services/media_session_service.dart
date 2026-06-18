@@ -27,11 +27,15 @@ class MediaSessionService {
   static Future<void> setMetadata({
     required String title,
     required Duration duration,
+    String? artPath,
   }) async {
     try {
       await _channel.invokeMethod('setMetadata', {
         'title': title,
         'duration': duration.inMilliseconds,
+        // Absolute path to the video's thumbnail jpeg, shown as lock-screen
+        // album art. Null when no thumbnail has been generated yet.
+        'artPath': artPath,
       });
     } catch (_) {}
   }
@@ -53,6 +57,14 @@ class MediaSessionService {
   static Future<void> release() async {
     try {
       await _channel.invokeMethod('release');
+    } catch (_) {}
+  }
+
+  /// Sends the app to the background (like the Home button) instead of letting
+  /// the back button finish the activity — keeps playback alive in audio mode.
+  static Future<void> moveTaskToBack() async {
+    try {
+      await _channel.invokeMethod('moveTaskToBack');
     } catch (_) {}
   }
 }

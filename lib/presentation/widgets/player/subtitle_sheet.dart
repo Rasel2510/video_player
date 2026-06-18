@@ -8,6 +8,7 @@ class SubtitleSheet extends StatelessWidget {
   final bool subtitlesEnabled;
   final void Function(SubtitleTrack) onSelect;
   final VoidCallback onToggle;
+  final VoidCallback onLoadExternal;
 
   const SubtitleSheet({
     super.key,
@@ -16,6 +17,7 @@ class SubtitleSheet extends StatelessWidget {
     required this.subtitlesEnabled,
     required this.onSelect,
     required this.onToggle,
+    required this.onLoadExternal,
   });
 
   @override
@@ -187,6 +189,7 @@ class SubtitleSheet extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: () {
                     Navigator.pop(context);
+                    onLoadExternal();
                   },
                   icon: Icon(Icons.folder_open_outlined,
                       size: 16, color: context.colors.accent),

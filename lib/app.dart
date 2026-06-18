@@ -14,7 +14,7 @@ class VideoPlayerApp extends ConsumerWidget {
     final themeMode = ref.watch(themeProvider);
 
     return MaterialApp(
-      title: 'Video Player',
+      title: 'A Play',
       debugShowCheckedModeBanner: false,
       themeMode: themeMode,
       theme: AppTheme.light,

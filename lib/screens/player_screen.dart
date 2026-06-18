@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../models/video_file.dart';
 import '../presentation/providers/player_provider.dart';
@@ -69,7 +70,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void dispose() {
     _lockIconCtrl.dispose();
     _lockIconLocalTimer?.cancel();
-    _notifier.dispose();
+    // leaveScreen keeps the player alive when audio mode is on; otherwise it
+    // fully disposes. Guarded internally against the double call from PopScope.
+    _notifier.leaveScreen();
     super.dispose();
   }
 
@@ -149,8 +152,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         subtitlesEnabled: s.subtitlesEnabled,
         onSelect: (t) => _notifier.setSubtitleTrack(t),
         onToggle: () => _notifier.toggleSubtitles(),
+        onLoadExternal: _pickExternalSubtitle,
       ),
     );
+  }
+
+  Future<void> _pickExternalSubtitle() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['srt', 'vtt', 'ass', 'ssa', 'sub', 'ttml'],
+    );
+    final path = result?.files.single.path;
+    if (path == null) return;
+    await _notifier.loadExternalSubtitle(path);
   }
 
   // ── Fit mode ───────────────────────────────────────────────────────────────
@@ -169,7 +183,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Widget build(BuildContext context) {
     return PopScope(
       onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) await _notifier.dispose();
+        if (didPop) await _notifier.leaveScreen();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -412,6 +426,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         if (willLock) _showLockIconLocal();
                       },
                       onToggleRepeat: notifier.cycleLoopMode,
+                      onAudioMode: () {
+                        // Switch to background audio and leave the screen —
+                        // playback keeps going, controlled from the
+                        // notification / lock screen.
+                        notifier.enableAudioMode();
+                        Navigator.pop(context);
+                      },
                     ),
                   );
                   return AnimatedOpacity(
