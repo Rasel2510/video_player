@@ -2,7 +2,7 @@
 
 A feature-rich, performance-optimised local video player for Android, built with Flutter.
 
-## Features
+## Features 
 
 - 📂 **Library scan** — auto-discovers all video files across internal & SD-card storage
 - 🔍 **Search & sort** — filter folders/videos by name, date, size, or duration
