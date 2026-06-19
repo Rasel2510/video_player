@@ -143,7 +143,7 @@ flutter build apk --release
 
 ## Dependencies  
 
-| Package | Purpose |
+| Package | Purpose | 
 |---|---|
 | `media_kit` | Video playback engine |
 | `flutter_riverpod` | State management |
