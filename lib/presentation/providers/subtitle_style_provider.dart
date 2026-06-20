@@ -10,6 +10,9 @@ const subtitleColorPresets = <Color>[
   Color(0xFFFFEB3B), // Yellow
   Color(0xFF00E5FF), // Cyan
   Color(0xFF76FF03), // Green
+  Color(0xFFFF4081), // Pink
+  Color(0xFFFF9800), // Orange
+  Color(0xFFE040FB), // Purple
 ];
 
 class SubtitleStyle {

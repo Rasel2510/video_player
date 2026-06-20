@@ -55,7 +55,9 @@ mixin _$PlayerState {
   bool get holdFastForward =>
       throw _privateConstructorUsedError; // A-B repeat: loop between these two points when both are set.
   Duration? get abRepeatStart => throw _privateConstructorUsedError;
-  Duration? get abRepeatEnd => throw _privateConstructorUsedError;
+  Duration? get abRepeatEnd =>
+      throw _privateConstructorUsedError; // Double-tap seek interval in seconds.
+  int get seekInterval => throw _privateConstructorUsedError;
 
   /// Create a copy of PlayerState
   /// with the given fields replaced by the non-null parameter values.
@@ -104,7 +106,8 @@ abstract class $PlayerStateCopyWith<$Res> {
       double subtitleDelay,
       bool holdFastForward,
       Duration? abRepeatStart,
-      Duration? abRepeatEnd});
+      Duration? abRepeatEnd,
+      int seekInterval});
 }
 
 /// @nodoc
@@ -156,6 +159,7 @@ class _$PlayerStateCopyWithImpl<$Res, $Val extends PlayerState>
     Object? holdFastForward = null,
     Object? abRepeatStart = freezed,
     Object? abRepeatEnd = freezed,
+    Object? seekInterval = null,
   }) {
     return _then(_value.copyWith(
       isInitialized: null == isInitialized
@@ -294,6 +298,10 @@ class _$PlayerStateCopyWithImpl<$Res, $Val extends PlayerState>
           ? _value.abRepeatEnd
           : abRepeatEnd // ignore: cast_nullable_to_non_nullable
               as Duration?,
+      seekInterval: null == seekInterval
+          ? _value.seekInterval
+          : seekInterval // ignore: cast_nullable_to_non_nullable
+              as int,
     ) as $Val);
   }
 }
@@ -340,7 +348,8 @@ abstract class _$$PlayerStateImplCopyWith<$Res>
       double subtitleDelay,
       bool holdFastForward,
       Duration? abRepeatStart,
-      Duration? abRepeatEnd});
+      Duration? abRepeatEnd,
+      int seekInterval});
 }
 
 /// @nodoc
@@ -390,6 +399,7 @@ class __$$PlayerStateImplCopyWithImpl<$Res>
     Object? holdFastForward = null,
     Object? abRepeatStart = freezed,
     Object? abRepeatEnd = freezed,
+    Object? seekInterval = null,
   }) {
     return _then(_$PlayerStateImpl(
       isInitialized: null == isInitialized
@@ -528,6 +538,10 @@ class __$$PlayerStateImplCopyWithImpl<$Res>
           ? _value.abRepeatEnd
           : abRepeatEnd // ignore: cast_nullable_to_non_nullable
               as Duration?,
+      seekInterval: null == seekInterval
+          ? _value.seekInterval
+          : seekInterval // ignore: cast_nullable_to_non_nullable
+              as int,
     ));
   }
 }
@@ -569,7 +583,8 @@ class _$PlayerStateImpl extends _PlayerState {
       this.subtitleDelay = 0.0,
       this.holdFastForward = false,
       this.abRepeatStart,
-      this.abRepeatEnd})
+      this.abRepeatEnd,
+      this.seekInterval = 10})
       : _audioTracks = audioTracks,
         _folderVideos = folderVideos,
         _subtitleTracks = subtitleTracks,
@@ -693,10 +708,14 @@ class _$PlayerStateImpl extends _PlayerState {
   final Duration? abRepeatStart;
   @override
   final Duration? abRepeatEnd;
+// Double-tap seek interval in seconds.
+  @override
+  @JsonKey()
+  final int seekInterval;
 
   @override
   String toString() {
-    return 'PlayerState(isInitialized: $isInitialized, isPlaying: $isPlaying, controlsVisible: $controlsVisible, rotationMode: $rotationMode, isSeeking: $isSeeking, seekValue: $seekValue, position: $position, duration: $duration, volume: $volume, brightness: $brightness, playbackSpeed: $playbackSpeed, fitMode: $fitMode, audioTracks: $audioTracks, selectedAudioTrack: $selectedAudioTrack, swipeGesture: $swipeGesture, swipeValue: $swipeValue, folderVideos: $folderVideos, currentIndex: $currentIndex, subtitleTracks: $subtitleTracks, selectedSubtitleTrack: $selectedSubtitleTrack, subtitlesEnabled: $subtitlesEnabled, isLocked: $isLocked, lockIconVisible: $lockIconVisible, hasError: $hasError, errorMessage: $errorMessage, autoPlayCountdown: $autoPlayCountdown, zoomScale: $zoomScale, loopMode: $loopMode, sleepTimerEndsAt: $sleepTimerEndsAt, sleepTimerEndOfVideo: $sleepTimerEndOfVideo, subtitleDelay: $subtitleDelay, holdFastForward: $holdFastForward, abRepeatStart: $abRepeatStart, abRepeatEnd: $abRepeatEnd)';
+    return 'PlayerState(isInitialized: $isInitialized, isPlaying: $isPlaying, controlsVisible: $controlsVisible, rotationMode: $rotationMode, isSeeking: $isSeeking, seekValue: $seekValue, position: $position, duration: $duration, volume: $volume, brightness: $brightness, playbackSpeed: $playbackSpeed, fitMode: $fitMode, audioTracks: $audioTracks, selectedAudioTrack: $selectedAudioTrack, swipeGesture: $swipeGesture, swipeValue: $swipeValue, folderVideos: $folderVideos, currentIndex: $currentIndex, subtitleTracks: $subtitleTracks, selectedSubtitleTrack: $selectedSubtitleTrack, subtitlesEnabled: $subtitlesEnabled, isLocked: $isLocked, lockIconVisible: $lockIconVisible, hasError: $hasError, errorMessage: $errorMessage, autoPlayCountdown: $autoPlayCountdown, zoomScale: $zoomScale, loopMode: $loopMode, sleepTimerEndsAt: $sleepTimerEndsAt, sleepTimerEndOfVideo: $sleepTimerEndOfVideo, subtitleDelay: $subtitleDelay, holdFastForward: $holdFastForward, abRepeatStart: $abRepeatStart, abRepeatEnd: $abRepeatEnd, seekInterval: $seekInterval)';
   }
 
   @override
@@ -769,7 +788,9 @@ class _$PlayerStateImpl extends _PlayerState {
             (identical(other.abRepeatStart, abRepeatStart) ||
                 other.abRepeatStart == abRepeatStart) &&
             (identical(other.abRepeatEnd, abRepeatEnd) ||
-                other.abRepeatEnd == abRepeatEnd));
+                other.abRepeatEnd == abRepeatEnd) &&
+            (identical(other.seekInterval, seekInterval) ||
+                other.seekInterval == seekInterval));
   }
 
   @override
@@ -808,7 +829,8 @@ class _$PlayerStateImpl extends _PlayerState {
         subtitleDelay,
         holdFastForward,
         abRepeatStart,
-        abRepeatEnd
+        abRepeatEnd,
+        seekInterval
       ]);
 
   /// Create a copy of PlayerState
@@ -855,7 +877,8 @@ abstract class _PlayerState extends PlayerState {
       final double subtitleDelay,
       final bool holdFastForward,
       final Duration? abRepeatStart,
-      final Duration? abRepeatEnd}) = _$PlayerStateImpl;
+      final Duration? abRepeatEnd,
+      final int seekInterval}) = _$PlayerStateImpl;
   const _PlayerState._() : super._();
 
   @override
@@ -930,7 +953,9 @@ abstract class _PlayerState extends PlayerState {
   @override
   Duration? get abRepeatStart;
   @override
-  Duration? get abRepeatEnd;
+  Duration? get abRepeatEnd; // Double-tap seek interval in seconds.
+  @override
+  int get seekInterval;
 
   /// Create a copy of PlayerState
   /// with the given fields replaced by the non-null parameter values.

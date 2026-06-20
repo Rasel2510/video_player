@@ -23,6 +23,7 @@ class PlayerPreferencesService {
   static const _subFontSizeKey   = 'subtitle_font_size_v1';
   static const _subColorIndexKey = 'subtitle_color_index_v1';
   static const _subBackgroundKey = 'subtitle_background_v1';
+  static const _seekIntervalKey  = 'player_seek_interval_v1';
 
   // ── Fit mode ──────────────────────────────────────────────────────────────
 
@@ -93,6 +94,7 @@ class PlayerPreferencesService {
       _subtitleFontSizeCache = p.getDouble(_subFontSizeKey) ?? 32.0;
       _subtitleColorIndexCache = p.getInt(_subColorIndexKey) ?? 0;
       _subtitleBackgroundCache = p.getBool(_subBackgroundKey) ?? true;
+      _seekIntervalCache = p.getInt(_seekIntervalKey) ?? 10;
     } catch (_) {}
   }
 
@@ -136,5 +138,15 @@ class PlayerPreferencesService {
   Future<void> saveSubtitleBackground(bool enabled) async {
     _subtitleBackgroundCache = enabled;
     try { await (await _p).setBool(_subBackgroundKey, enabled); } catch (_) {}
+  }
+
+  // ── Seek interval ─────────────────────────────────────────────────────────
+
+  int _seekIntervalCache = 10;
+  int get seekIntervalCached => _seekIntervalCache;
+
+  Future<void> saveSeekInterval(int seconds) async {
+    _seekIntervalCache = seconds;
+    try { await (await _p).setInt(_seekIntervalKey, seconds); } catch (_) {}
   }
 }
