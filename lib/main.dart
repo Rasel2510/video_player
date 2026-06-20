@@ -19,3 +19,4 @@ void main() {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   runApp(const ProviderScope(child: VideoPlayerApp()));
 }
+ 
