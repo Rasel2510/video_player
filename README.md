@@ -140,7 +140,7 @@ flutter build apk --release
 - A physical or emulated Android device for full file-system access
 
 ---
-
+ 
 ## Dependencies  
 
 | Package | Purpose | 
