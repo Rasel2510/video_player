@@ -216,7 +216,11 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
             top: 0,
             bottom: 0,
             width: size.width / 2,
-            child: SeekFlash(animation: _seekFlashAnim, isForward: false),
+            child: SeekFlash(
+              animation: _seekFlashAnim,
+              isForward: false,
+              seekInterval: seekInterval,
+            ),
           ),
         if (_seekFlashRight)
           Positioned(
@@ -224,7 +228,11 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
             top: 0,
             bottom: 0,
             width: size.width / 2,
-            child: SeekFlash(animation: _seekFlashAnim, isForward: true),
+            child: SeekFlash(
+              animation: _seekFlashAnim,
+              isForward: true,
+              seekInterval: seekInterval,
+            ),
           ),
 
         // Hold-to-fast-forward badge.

@@ -3,8 +3,14 @@ import 'package:flutter/material.dart';
 class SeekFlash extends StatelessWidget {
   final Animation<double> animation;
   final bool isForward;
+  final int seekInterval;
 
-  const SeekFlash({super.key, required this.animation, required this.isForward});
+  const SeekFlash({
+    super.key,
+    required this.animation,
+    required this.isForward,
+    required this.seekInterval,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +29,7 @@ class SeekFlash extends StatelessWidget {
       size: 40,
     );
     final label = Text(
-      isForward ? '+10s' : '-10s',
+      isForward ? '+${seekInterval}s' : '-${seekInterval}s',
       style: const TextStyle(
         color: Colors.white,
         fontSize: 13,

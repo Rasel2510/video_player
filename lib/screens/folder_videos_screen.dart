@@ -176,6 +176,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      useSafeArea: true,
       builder: (ctx) {
         return Container(
           decoration: BoxDecoration(

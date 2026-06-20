@@ -63,6 +63,7 @@ class PlayerState with _$PlayerState {
     @Default(false) bool isInitialized,
     @Default(false) bool isPlaying,
     @Default(true) bool controlsVisible,
+    @Default(false) bool isPipMode,
     @Default(RotationMode.auto) RotationMode rotationMode,
     @Default(false) bool isSeeking,
     @Default(0.0) double seekValue,
@@ -243,6 +244,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
     MediaSessionService.setActionHandler(
       onAction: _handleMediaAction,
       onSeek: (pos) => _player?.seek(pos),
+      onPipModeChanged: (isPip) {
+        state = state.copyWith(isPipMode: isPip);
+      },
     );
 
     // Start decoding immediately — overlaps the prefs reads above and the

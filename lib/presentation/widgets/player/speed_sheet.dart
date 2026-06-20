@@ -54,19 +54,33 @@ class _SpeedSheetState extends State<SpeedSheet> {
               ),
             ),
           ),
-          
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('PLAYBACK SPEED', style: context.textStyles.label),
-              Text(
-                '${_speed.toStringAsFixed(2)}×',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'monospace',
-                  fontSize: 14,
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => _speed = 1.0);
+                      widget.onSelectSpeed(1.0);
+                    },
+                    child: Icon(Icons.refresh_rounded,
+                        size: 20, color: context.colors.textSecondary),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '${_speed.toStringAsFixed(2)}×',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontFamily: 'monospace',
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -93,9 +107,48 @@ class _SpeedSheetState extends State<SpeedSheet> {
               },
             ),
           ),
-          
+
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [0.5, 1.0, 1.25, 1.5, 2.0].map((s) {
+              final selected = s == _speed;
+              return GestureDetector(
+                onTap: () {
+                  setState(() => _speed = s);
+                  widget.onSelectSpeed(s);
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? context.colors.accent
+                        : context.colors.elevated,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: selected
+                          ? context.colors.accent
+                          : context.colors.border,
+                    ),
+                  ),
+                  child: Text(
+                    '$s×',
+                    style: TextStyle(
+                      color:
+                          selected ? Colors.white : context.colors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
           const SizedBox(height: 24),
-          
+
           Text('DOUBLE-TAP TO SEEK', style: context.textStyles.label),
           const SizedBox(height: 16),
           Wrap(
@@ -111,18 +164,24 @@ class _SpeedSheetState extends State<SpeedSheet> {
                 },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                   decoration: BoxDecoration(
-                    color: selected ? context.colors.accent : context.colors.elevated,
+                    color: selected
+                        ? context.colors.accent
+                        : context.colors.elevated,
                     borderRadius: AppRadius.sm,
                     border: Border.all(
-                      color: selected ? context.colors.accent : context.colors.border,
+                      color: selected
+                          ? context.colors.accent
+                          : context.colors.border,
                     ),
                   ),
                   child: Text(
                     label,
                     style: TextStyle(
-                      color: selected ? Colors.white : context.colors.textPrimary,
+                      color:
+                          selected ? Colors.white : context.colors.textPrimary,
                       fontWeight: FontWeight.w600,
                       fontFamily: 'monospace',
                       fontSize: 13,

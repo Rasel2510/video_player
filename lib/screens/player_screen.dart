@@ -221,11 +221,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             // show/hide is driven by _lockIconCtrl (an AnimationController
             // local to this State) so it never triggers a Consumer rebuild
             // and therefore never re-composites the Video platform view.
-            final (:isLocked, :controlsVisible) =
+            final (:isLocked, :controlsVisible, :isPipMode) =
                 ref.watch(playerProvider.select((s) => (
                       isLocked: s.isLocked,
                       controlsVisible: s.controlsVisible,
+                      isPipMode: s.isPipMode,
                     )));
+
+            // In PiP mode: show only the raw video, everything else is hidden.
+            if (isPipMode) return child!;
 
             return Stack(
               children: [
@@ -333,7 +337,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       color: subStyle.color,
                       fontWeight: FontWeight.bold,
                       backgroundColor: subStyle.background
-                          ? const Color(0xAA000000)
+                          ? subStyle.backgroundColor
                           : Colors.transparent,
                       // No background box: add a shadow outline instead so
                       // the text stays legible against bright video frames.

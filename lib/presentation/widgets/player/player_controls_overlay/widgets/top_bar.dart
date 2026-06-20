@@ -93,10 +93,13 @@ class _TopBar extends ConsumerWidget {
           ),
 
           // ── Row 2: action buttons ────────────────────────────────────────
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              // Lock gesture
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            reverse: true,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                // Lock gesture
               _GlassIconButton(
                 icon: Icons.lock_open_rounded,
                 size: 19,
@@ -180,6 +183,7 @@ class _TopBar extends ConsumerWidget {
                 loopMode: loopMode,
               ),
             ],
+          ),
           ),
         ],
       ),

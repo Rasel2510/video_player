@@ -44,7 +44,7 @@ class _AppearanceControl extends ConsumerWidget {
                   color: style.color,
                   fontWeight: FontWeight.bold,
                   backgroundColor: style.background
-                      ? const Color(0xAA000000)
+                      ? style.backgroundColor
                       : Colors.transparent,
                   shadows: style.background
                       ? null
@@ -139,6 +139,40 @@ class _AppearanceControl extends ConsumerWidget {
               ),
             ],
           ),
+          if (style.background) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const SizedBox(width: 32), // Align with text
+                Text('Background color',
+                    style: TextStyle(color: context.colors.textSecondary, fontSize: 13)),
+                const Spacer(),
+                for (var i = 0; i < subtitleBgColorPresets.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 10),
+                    child: GestureDetector(
+                      onTap: () => notifier.setBackgroundColorIndex(i),
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          // the preset colors have alpha, so we render them on white or just use the raw color
+                          // Since panel is dark, the alpha color will blend and show correctly.
+                          color: subtitleBgColorPresets[i].withValues(alpha: 1.0), // Show solid color in picker
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: style.backgroundColorIndex == i
+                                ? context.colors.accent
+                                : context.colors.border,
+                            width: style.backgroundColorIndex == i ? 2 : 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );

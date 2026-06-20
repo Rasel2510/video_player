@@ -19,6 +19,7 @@ mixin _$PlayerState {
   bool get isInitialized => throw _privateConstructorUsedError;
   bool get isPlaying => throw _privateConstructorUsedError;
   bool get controlsVisible => throw _privateConstructorUsedError;
+  bool get isPipMode => throw _privateConstructorUsedError;
   RotationMode get rotationMode => throw _privateConstructorUsedError;
   bool get isSeeking => throw _privateConstructorUsedError;
   double get seekValue => throw _privateConstructorUsedError;
@@ -76,6 +77,7 @@ abstract class $PlayerStateCopyWith<$Res> {
       {bool isInitialized,
       bool isPlaying,
       bool controlsVisible,
+      bool isPipMode,
       RotationMode rotationMode,
       bool isSeeking,
       double seekValue,
@@ -128,6 +130,7 @@ class _$PlayerStateCopyWithImpl<$Res, $Val extends PlayerState>
     Object? isInitialized = null,
     Object? isPlaying = null,
     Object? controlsVisible = null,
+    Object? isPipMode = null,
     Object? rotationMode = null,
     Object? isSeeking = null,
     Object? seekValue = null,
@@ -173,6 +176,10 @@ class _$PlayerStateCopyWithImpl<$Res, $Val extends PlayerState>
       controlsVisible: null == controlsVisible
           ? _value.controlsVisible
           : controlsVisible // ignore: cast_nullable_to_non_nullable
+              as bool,
+      isPipMode: null == isPipMode
+          ? _value.isPipMode
+          : isPipMode // ignore: cast_nullable_to_non_nullable
               as bool,
       rotationMode: null == rotationMode
           ? _value.rotationMode
@@ -318,6 +325,7 @@ abstract class _$$PlayerStateImplCopyWith<$Res>
       {bool isInitialized,
       bool isPlaying,
       bool controlsVisible,
+      bool isPipMode,
       RotationMode rotationMode,
       bool isSeeking,
       double seekValue,
@@ -368,6 +376,7 @@ class __$$PlayerStateImplCopyWithImpl<$Res>
     Object? isInitialized = null,
     Object? isPlaying = null,
     Object? controlsVisible = null,
+    Object? isPipMode = null,
     Object? rotationMode = null,
     Object? isSeeking = null,
     Object? seekValue = null,
@@ -413,6 +422,10 @@ class __$$PlayerStateImplCopyWithImpl<$Res>
       controlsVisible: null == controlsVisible
           ? _value.controlsVisible
           : controlsVisible // ignore: cast_nullable_to_non_nullable
+              as bool,
+      isPipMode: null == isPipMode
+          ? _value.isPipMode
+          : isPipMode // ignore: cast_nullable_to_non_nullable
               as bool,
       rotationMode: null == rotationMode
           ? _value.rotationMode
@@ -553,6 +566,7 @@ class _$PlayerStateImpl extends _PlayerState {
       {this.isInitialized = false,
       this.isPlaying = false,
       this.controlsVisible = true,
+      this.isPipMode = false,
       this.rotationMode = RotationMode.auto,
       this.isSeeking = false,
       this.seekValue = 0.0,
@@ -599,6 +613,9 @@ class _$PlayerStateImpl extends _PlayerState {
   @override
   @JsonKey()
   final bool controlsVisible;
+  @override
+  @JsonKey()
+  final bool isPipMode;
   @override
   @JsonKey()
   final RotationMode rotationMode;
@@ -715,7 +732,7 @@ class _$PlayerStateImpl extends _PlayerState {
 
   @override
   String toString() {
-    return 'PlayerState(isInitialized: $isInitialized, isPlaying: $isPlaying, controlsVisible: $controlsVisible, rotationMode: $rotationMode, isSeeking: $isSeeking, seekValue: $seekValue, position: $position, duration: $duration, volume: $volume, brightness: $brightness, playbackSpeed: $playbackSpeed, fitMode: $fitMode, audioTracks: $audioTracks, selectedAudioTrack: $selectedAudioTrack, swipeGesture: $swipeGesture, swipeValue: $swipeValue, folderVideos: $folderVideos, currentIndex: $currentIndex, subtitleTracks: $subtitleTracks, selectedSubtitleTrack: $selectedSubtitleTrack, subtitlesEnabled: $subtitlesEnabled, isLocked: $isLocked, lockIconVisible: $lockIconVisible, hasError: $hasError, errorMessage: $errorMessage, autoPlayCountdown: $autoPlayCountdown, zoomScale: $zoomScale, loopMode: $loopMode, sleepTimerEndsAt: $sleepTimerEndsAt, sleepTimerEndOfVideo: $sleepTimerEndOfVideo, subtitleDelay: $subtitleDelay, holdFastForward: $holdFastForward, abRepeatStart: $abRepeatStart, abRepeatEnd: $abRepeatEnd, seekInterval: $seekInterval)';
+    return 'PlayerState(isInitialized: $isInitialized, isPlaying: $isPlaying, controlsVisible: $controlsVisible, isPipMode: $isPipMode, rotationMode: $rotationMode, isSeeking: $isSeeking, seekValue: $seekValue, position: $position, duration: $duration, volume: $volume, brightness: $brightness, playbackSpeed: $playbackSpeed, fitMode: $fitMode, audioTracks: $audioTracks, selectedAudioTrack: $selectedAudioTrack, swipeGesture: $swipeGesture, swipeValue: $swipeValue, folderVideos: $folderVideos, currentIndex: $currentIndex, subtitleTracks: $subtitleTracks, selectedSubtitleTrack: $selectedSubtitleTrack, subtitlesEnabled: $subtitlesEnabled, isLocked: $isLocked, lockIconVisible: $lockIconVisible, hasError: $hasError, errorMessage: $errorMessage, autoPlayCountdown: $autoPlayCountdown, zoomScale: $zoomScale, loopMode: $loopMode, sleepTimerEndsAt: $sleepTimerEndsAt, sleepTimerEndOfVideo: $sleepTimerEndOfVideo, subtitleDelay: $subtitleDelay, holdFastForward: $holdFastForward, abRepeatStart: $abRepeatStart, abRepeatEnd: $abRepeatEnd, seekInterval: $seekInterval)';
   }
 
   @override
@@ -729,6 +746,8 @@ class _$PlayerStateImpl extends _PlayerState {
                 other.isPlaying == isPlaying) &&
             (identical(other.controlsVisible, controlsVisible) ||
                 other.controlsVisible == controlsVisible) &&
+            (identical(other.isPipMode, isPipMode) ||
+                other.isPipMode == isPipMode) &&
             (identical(other.rotationMode, rotationMode) ||
                 other.rotationMode == rotationMode) &&
             (identical(other.isSeeking, isSeeking) ||
@@ -799,6 +818,7 @@ class _$PlayerStateImpl extends _PlayerState {
         isInitialized,
         isPlaying,
         controlsVisible,
+        isPipMode,
         rotationMode,
         isSeeking,
         seekValue,
@@ -847,6 +867,7 @@ abstract class _PlayerState extends PlayerState {
       {final bool isInitialized,
       final bool isPlaying,
       final bool controlsVisible,
+      final bool isPipMode,
       final RotationMode rotationMode,
       final bool isSeeking,
       final double seekValue,
@@ -887,6 +908,8 @@ abstract class _PlayerState extends PlayerState {
   bool get isPlaying;
   @override
   bool get controlsVisible;
+  @override
+  bool get isPipMode;
   @override
   RotationMode get rotationMode;
   @override
