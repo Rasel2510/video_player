@@ -26,7 +26,7 @@ lib/
 ├── main.dart                          # App entry point
 ├── app.dart                           # MaterialApp + theme setup
 │
-├── core/
+├── core/ 
 │   ├── theme/
 │   │   └── app_theme.dart             # Colors, text styles, radii, BuildContext extensions
 │   └── utils/
