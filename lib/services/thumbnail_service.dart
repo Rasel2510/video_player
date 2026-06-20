@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import '../core/utils/cache_key.dart';
+import 'media_store_service.dart';
 
 /// Generates and caches video thumbnails to disk.
 ///
@@ -79,7 +80,12 @@ class ThumbnailService {
         return cacheFile;
       }
 
-      final bytes = await VideoThumbnail.thumbnailData(
+      // Fast path: reuse the system's pre-generated thumbnail for MediaStore-
+      // indexed videos (Camera/Downloads/etc.) instead of decoding a frame.
+      // Returns null for .nomedia videos (WhatsApp) → falls through to extract.
+      var bytes = await MediaStoreService.thumbnailBytes(videoPath, 240, 240);
+
+      bytes ??= await VideoThumbnail.thumbnailData(
         video: videoPath,
         imageFormat: ImageFormat.JPEG,
         // FIX #THUMB-FAST: 1 s instead of 3 s — most videos have a valid
@@ -133,5 +139,21 @@ class ThumbnailService {
       final cacheFile = await _cacheFileFor(videoPath);
       if (await cacheFile.exists()) await cacheFile.delete();
     } catch (_) {}
+  }
+
+  /// Moves a cached thumbnail from [oldPath] to [newPath] — used when a video
+  /// file is renamed on disk, so the thumbnail doesn't need to regenerate.
+  Future<void> rename(String oldPath, String newPath) async {
+    final resolved = _resolved.remove(oldPath);
+    _inFlight.remove(oldPath);
+    try {
+      final oldFile = await _cacheFileFor(oldPath);
+      if (await oldFile.exists()) {
+        final newFile = await _cacheFileFor(newPath);
+        _resolved[newPath] = await oldFile.rename(newFile.path);
+        return;
+      }
+    } catch (_) {}
+    if (resolved != null) _resolved[newPath] = resolved;
   }
 }

@@ -251,9 +251,11 @@ class FoldersNotifier extends Notifier<FoldersState> {
   static const _minRescanGap = Duration(minutes: 2);
 
   // MediaStore is Android-only. Off Android we always use the file scanner.
-  Future<LibraryScanMode> _resolveScanMode() async {
+  // Reads the synchronously-cached index (warmed by preload() in main) so the
+  // first load already uses the saved mode — no flash of hybrid on cold start.
+  LibraryScanMode _resolveScanMode() {
     if (!Platform.isAndroid) return LibraryScanMode.fileScanner;
-    final idx = await PlayerPreferencesService.instance.loadScanModeIndex();
+    final idx = PlayerPreferencesService.instance.scanModeIndexCached;
     return LibraryScanMode.values[
         idx.clamp(0, LibraryScanMode.values.length - 1)];
   }
@@ -264,7 +266,7 @@ class FoldersNotifier extends Notifier<FoldersState> {
   Future<void> load({bool forceScan = false}) async {
     if (state.isScanning) return;
 
-    _scanMode = await _resolveScanMode();
+    _scanMode = _resolveScanMode();
 
     // Hybrid / MediaStore: use the MediaStore index (fast) + live observer.
     // Hybrid additionally walks the filesystem to catch .nomedia folders
@@ -353,7 +355,8 @@ class FoldersNotifier extends Notifier<FoldersState> {
     }
     _refreshing = true;
     try {
-      if (showScanning && state.folders.isEmpty) {
+      final wasEmpty = state.folders.isEmpty;
+      if (showScanning && wasEmpty) {
         state = state.copyWith(
           isScanning: true,
           scanProgress: 0,
@@ -361,18 +364,32 @@ class FoldersNotifier extends Notifier<FoldersState> {
           storageRoots: _discoverStorageRoots(),
         );
       }
-      // Index videos by path so the filesystem merge can dedupe against them.
+
       final videos = await MediaStoreService.queryVideos();
-      final byPath = <String, VideoFile>{for (final v in videos) v.path: v};
-      await _applyFolders(_groupByFolder(byPath.values.toList()));
+      final mediaByPath = <String, VideoFile>{for (final v in videos) v.path: v};
+
+      // In hybrid mode, keep the filesystem-only videos already on screen (from
+      // cache or a prior walk) — WhatsApp/Telegram, etc. — so a MediaStore-only
+      // refresh (including the live observer) never makes them disappear; the
+      // authoritative on-disk set is rebuilt by _filesystemMerge. MediaStore-only
+      // mode treats MediaStore as the source of truth and preserves nothing.
+      final combined = Map<String, VideoFile>.from(mediaByPath);
+      if (_scanMode == LibraryScanMode.hybrid) {
+        for (final f in state.folders) {
+          for (final v in f.videos) {
+            combined.putIfAbsent(v.path, () => v);
+          }
+        }
+      }
+      await _applyFoldersIfChanged(_groupByFolder(combined.values.toList()));
 
       // The filesystem walk (the only real battery cost) surfaces WhatsApp/
       // Telegram videos MediaStore can't see. Throttled so back-to-back resumes
       // don't re-walk storage; an empty library or an explicit refresh forces it.
       if (withFilesystemMerge) {
         await _filesystemMerge(
-          byPath,
-          force: forceFilesystem || state.folders.isEmpty,
+          mediaByPath,
+          force: forceFilesystem || wasEmpty,
         );
       }
     } finally {
@@ -389,10 +406,11 @@ class FoldersNotifier extends Notifier<FoldersState> {
   /// [byPath] already holds the MediaStore results, keyed by path, so we only
   /// re-render when the walk actually turns up something extra.
   Future<void> _filesystemMerge(
-    Map<String, VideoFile> byPath, {
+    Map<String, VideoFile> mediaByPath, {
     required bool force,
   }) async {
     // Battery: skip the walk if we did one recently and nothing is forcing it.
+    // The preserved filesystem videos stay on screen (and cached) meanwhile.
     final last = _lastFilesystemScan;
     if (!force &&
         last != null &&
@@ -401,22 +419,65 @@ class FoldersNotifier extends Notifier<FoldersState> {
     }
     _lastFilesystemScan = DateTime.now();
 
-    final roots = _discoverStorageRoots();
-    var foundExtra = false;
-    for (final root in roots) {
-      final folders = await FolderScanner.scanFolders(root);
+    // Show the same scanning spinner the file-scanner mode shows while the
+    // background walk runs — so hybrid also gives the user "scanning" feedback.
+    // Cleared by _applyFoldersIfChanged when the walk finishes.
+    if (!state.isScanning) {
+      state = state.copyWith(isScanning: true);
+    }
+
+    // Rebuild the authoritative union: MediaStore ∪ on-disk videos. Starting
+    // from MediaStore (rather than the current state) means a deleted WhatsApp
+    // file is dropped here instead of lingering forever.
+    final combined = Map<String, VideoFile>.from(mediaByPath);
+    var progress = 0;
+    for (final root in _discoverStorageRoots()) {
+      final folders = await FolderScanner.scanFolders(
+        root,
+        onProgress: (_) {
+          progress += 1;
+          state = state.copyWith(scanProgress: progress);
+        },
+      );
       for (final f in folders) {
         for (final v in f.videos) {
-          if (!byPath.containsKey(v.path)) {
-            byPath[v.path] = v;
-            foundExtra = true;
-          }
+          combined.putIfAbsent(v.path, () => v);
         }
       }
     }
-    if (foundExtra) {
-      await _applyFolders(_groupByFolder(byPath.values.toList()));
+    await _applyFoldersIfChanged(_groupByFolder(combined.values.toList()));
+  }
+
+  /// Commits [merged] only when the set of videos actually differs from what's
+  /// shown — so a no-op rescan doesn't rewrite the cache, recompute badges, or
+  /// flicker the UI. (It still clears any lingering "scanning" flag.)
+  Future<void> _applyFoldersIfChanged(List<VideoFolder> merged) async {
+    if (_sameVideoSet(merged)) {
+      if (state.isScanning || state.fromCache) {
+        state = state.copyWith(isScanning: false, fromCache: false);
+      }
+      return;
     }
+    await _applyFolders(merged);
+  }
+
+  /// True when [merged] contains exactly the same video paths as the current
+  /// state (folder grouping/order aside).
+  bool _sameVideoSet(List<VideoFolder> merged) {
+    final current = <String>{};
+    for (final f in state.folders) {
+      for (final v in f.videos) {
+        current.add(v.path);
+      }
+    }
+    var count = 0;
+    for (final f in merged) {
+      for (final v in f.videos) {
+        count++;
+        if (!current.contains(v.path)) return false;
+      }
+    }
+    return count == current.length;
   }
 
   /// Groups a flat MediaStore video list into folders by parent directory,
@@ -660,6 +721,23 @@ class FoldersNotifier extends Notifier<FoldersState> {
 
     // Persist the updated folder list so the next cold start reflects the
     // deletion without needing a rescan.
+    _saveCache(updatedFolders);
+  }
+
+  /// Surgically replaces a single video in state with its renamed counterpart
+  /// (no rescan needed) and persists the updated folder list to cache.
+  void renameVideo(String oldPath, VideoFile renamed) {
+    final updatedFolders = state.folders.map((folder) {
+      final idx = folder.videos.indexWhere((v) => v.path == oldPath);
+      if (idx == -1) return folder;
+      final updatedVideos = List<VideoFile>.from(folder.videos);
+      updatedVideos[idx] = renamed;
+      return VideoFolder(path: folder.path, videos: updatedVideos);
+    }).toList();
+
+    final updatedNewPaths = Set<String>.from(state.newPaths)..remove(oldPath);
+
+    state = state.copyWith(folders: updatedFolders, newPaths: updatedNewPaths);
     _saveCache(updatedFolders);
   }
 

@@ -67,4 +67,14 @@ class MediaSessionService {
       await _channel.invokeMethod('moveTaskToBack');
     } catch (_) {}
   }
+
+  /// Enters Android Picture-in-Picture with the given video aspect ratio.
+  static Future<void> enterPip({int width = 16, int height = 9}) async {
+    try {
+      await _channel.invokeMethod('enterPip', {
+        'width': width,
+        'height': height,
+      });
+    } catch (_) {}
+  }
 }

@@ -37,6 +37,9 @@ class PlayerControlsOverlay extends StatelessWidget {
   final VoidCallback onToggleLock;
   final VoidCallback onToggleRepeat;
   final VoidCallback onAudioMode;
+  final VoidCallback onSleepTimer;
+  final VoidCallback onPip;
+  final VoidCallback onCycleAbRepeat;
 
   const PlayerControlsOverlay({
     super.key,
@@ -59,6 +62,9 @@ class PlayerControlsOverlay extends StatelessWidget {
     required this.onToggleLock,
     required this.onToggleRepeat,
     required this.onAudioMode,
+    required this.onSleepTimer,
+    required this.onPip,
+    required this.onCycleAbRepeat,
   });
 
   // FIX #OPT-12: Static const gradient widgets — these decorations never change
@@ -114,6 +120,9 @@ class PlayerControlsOverlay extends StatelessWidget {
                 onToggleLock: onToggleLock,
                 onToggleRepeat: onToggleRepeat,
                 onAudioMode: onAudioMode,
+                onSleepTimer: onSleepTimer,
+                onPip: onPip,
+                onCycleAbRepeat: onCycleAbRepeat,
               ),
               const Spacer(),
               _CenterControls(
@@ -154,6 +163,9 @@ class _TopBar extends ConsumerWidget {
   final VoidCallback onToggleLock;
   final VoidCallback onToggleRepeat;
   final VoidCallback onAudioMode;
+  final VoidCallback onSleepTimer;
+  final VoidCallback onPip;
+  final VoidCallback onCycleAbRepeat;
 
   const _TopBar({
     required this.fileName,
@@ -165,6 +177,9 @@ class _TopBar extends ConsumerWidget {
     required this.onToggleLock,
     required this.onToggleRepeat,
     required this.onAudioMode,
+    required this.onSleepTimer,
+    required this.onPip,
+    required this.onCycleAbRepeat,
   });
 
   @override
@@ -177,6 +192,8 @@ class _TopBar extends ConsumerWidget {
       :hasMultipleAudio,
       :hasSubtitles,
       :subtitlesEnabled,
+      :sleepActive,
+      :abState,
     ) = ref.watch(playerProvider.select((s) => (
           speed: s.playbackSpeed,
           volume: s.volume,
@@ -184,6 +201,11 @@ class _TopBar extends ConsumerWidget {
           hasMultipleAudio: s.audioTracks.length > 1,
           hasSubtitles: s.subtitleTracks.isNotEmpty,
           subtitlesEnabled: s.subtitlesEnabled,
+          sleepActive: s.sleepTimerEndsAt != null || s.sleepTimerEndOfVideo,
+          // 0 = off, 1 = A set (waiting for B), 2 = looping A↔B.
+          abState: s.abRepeatStart == null
+              ? 0
+              : (s.abRepeatEnd == null ? 1 : 2),
         )));
 
     // Avoid allocating a new string on every build when speed hasn't changed.
@@ -266,6 +288,21 @@ class _TopBar extends ConsumerWidget {
                 onTap: onAudioMode,
               ),
               const SizedBox(width: 2),
+              // Picture-in-Picture — keep the video playing in a floating window.
+              _GlassIconButton(
+                icon: Icons.picture_in_picture_alt_rounded,
+                size: 19,
+                onTap: onPip,
+              ),
+              const SizedBox(width: 2),
+              // Sleep timer — auto-pause after a delay / end of video.
+              _GlassIconButton(
+                icon: Icons.bedtime_rounded,
+                size: 18,
+                onTap: onSleepTimer,
+                active: sleepActive,
+              ),
+              const SizedBox(width: 2),
               // Subtitle
               _GlassIconButton(
                 icon: subtitlesEnabled && hasSubtitles
@@ -276,7 +313,14 @@ class _TopBar extends ConsumerWidget {
                 active: subtitlesEnabled && hasSubtitles,
                 dim: !hasSubtitles,
               ),
-              const SizedBox(width: 2),
+              const SizedBox(width: 6),
+              // A-B repeat — tap to set A, again for B (loops), again to clear.
+              _MiniChip(
+                label: abState == 1 ? 'A•' : 'A-B',
+                onTap: onCycleAbRepeat,
+                color: abState == 0 ? null : context.colors.accent,
+              ),
+              const SizedBox(width: 6),
               // Repeat / loop
               _GlassIconButton(
                 icon: loopMode == LoopMode.loopOne
@@ -649,7 +693,8 @@ class _GlassIconButton extends StatelessWidget {
 class _MiniChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-  const _MiniChip({required this.label, required this.onTap});
+  final Color? color;
+  const _MiniChip({required this.label, required this.onTap, this.color});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -659,12 +704,12 @@ class _MiniChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: _kBlack40,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: _kWhite12),
+            border: Border.all(color: color ?? _kWhite12),
           ),
           child: Text(
             label,
-            style: const TextStyle(
-              color: _kWhite100,
+            style: TextStyle(
+              color: color ?? _kWhite100,
               fontSize: 11,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.4,

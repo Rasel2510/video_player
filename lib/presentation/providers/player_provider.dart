@@ -88,6 +88,17 @@ class PlayerState with _$PlayerState {
     int? autoPlayCountdown,
     @Default(1.0) double zoomScale,
     @Default(LoopMode.none) LoopMode loopMode,
+    // Sleep timer: wall-clock time at which playback auto-pauses (null = off).
+    DateTime? sleepTimerEndsAt,
+    // Sleep timer variant: pause when the current video finishes.
+    @Default(false) bool sleepTimerEndOfVideo,
+    // Subtitle sync offset in seconds (+ = subtitles later, − = earlier).
+    @Default(0.0) double subtitleDelay,
+    // True while the user holds to temporarily fast-forward (2× speed).
+    @Default(false) bool holdFastForward,
+    // A-B repeat: loop between these two points when both are set.
+    Duration? abRepeatStart,
+    Duration? abRepeatEnd,
   }) = _PlayerState;
 
   double get progress => duration.inMilliseconds > 0
@@ -119,6 +130,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
   Timer? _hudTimer;
   Timer? _saveTimer;
   Timer? _autoPlayTimer;
+  Timer? _sleepTimer;
+  // Speed to restore when the hold-to-fast-forward gesture is released.
+  double _preHoldSpeed = 1.0;
   String? _currentPath;
   // Resolved thumbnail path for the current video, used as lock-screen art.
   String? _currentArtPath;
@@ -178,10 +192,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _leftScreen = false;
     _hasStartedPlaying = false;
 
-    // Load persisted prefs, device volume, and brightness all in parallel —
-    // FIX #OPT-5: brightness reads were previously sequential after this block,
-    // adding ~20 ms of latency on every player open.
-    final results = await Future.wait([
+    // FIX #OPT-OPEN: Kick off the prefs / device-volume / brightness reads in
+    // parallel with opening the file instead of blocking the decode on them.
+    // The native decode (the slow part) now overlaps these ~tens of ms of I/O,
+    // and the values are applied via copyWith once they resolve.
+    final prefsFuture = Future.wait([
       PlayerPreferencesService.instance.loadFitModeIndex(),     // [0]
       PlayerPreferencesService.instance.loadSpeed(),             // [1]
       VolumeService.instance.getDeviceVolume(),                  // [2]
@@ -191,6 +206,44 @@ class PlayerNotifier extends Notifier<PlayerState> {
           .catchError((_) => null),
       PlayerPreferencesService.instance.loadLoopModeIndex(),     // [5]
     ]);
+
+    _disposeInternal();
+    _currentPath = filePath;
+    _currentArtPath = null;
+    _externalSubtitles.clear();
+
+    // Clean slate for the new video. Prefs (volume/fit/speed/brightness/loop)
+    // are merged in via copyWith below — using copyWith rather than a second
+    // full PlayerState assignment means an early stream event (e.g. onReady
+    // setting isInitialized) isn't clobbered when the prefs land.
+    state = PlayerState(folderVideos: folderVideos, currentIndex: initialIndex);
+
+    _player = Player();
+    _videoController = VideoController(_player!);
+
+    _listenStreams(onReady: () {
+      state = state.copyWith(isInitialized: true);
+      _startHideTimer();
+      _syncMediaSessionMetadata();
+      if (resumeFrom != null && resumeFrom > Duration.zero) {
+        Future.delayed(const Duration(milliseconds: 300), () {
+          _player?.seek(resumeFrom);
+        });
+      }
+    });
+
+    // Lock-screen / notification controls. setActionHandler overwrites any
+    // previous handler so a re-entrant init() doesn't leak handlers.
+    MediaSessionService.setActionHandler(
+      onAction: _handleMediaAction,
+      onSeek: (pos) => _player?.seek(pos),
+    );
+
+    // Start decoding immediately — overlaps the prefs reads above and the
+    // settings applied below.
+    final openFuture = _player!.open(Media(filePath));
+
+    final results = await prefsFuture;
     final fitModeIdx    = results[0] as int;
     final savedSpeed    = results[1] as double;
     final deviceVol     = results[2] as double;
@@ -200,34 +253,13 @@ class PlayerNotifier extends Notifier<PlayerState> {
     final fitMode       = FitMode.values[fitModeIdx.clamp(0, FitMode.values.length - 1)];
     final loopMode      = LoopMode.values[loopModeIdx.clamp(0, LoopMode.values.length - 1)];
 
-    final activeBri  = savedBri ?? currentBri;
-
-    state = PlayerState(
-      folderVideos: folderVideos,
-      currentIndex: initialIndex,
+    state = state.copyWith(
       volume: deviceVol * 100,
       fitMode: fitMode,
       playbackSpeed: savedSpeed,
-      brightness: activeBri,
+      brightness: savedBri ?? currentBri,
       loopMode: loopMode,
     );
-
-    _disposeInternal();
-    _currentPath = filePath;
-    _currentArtPath = null;
-    _externalSubtitles.clear();
-
-    _player = Player();
-    _videoController = VideoController(_player!);
-
-    // Apply the resolved brightness (no-op if it equals the system default).
-    if (savedBri != null) {
-      try { await _brightness.setScreenBrightness(savedBri); } catch (_) {}
-    }
-
-    // Always run media_kit at full internal volume — device volume controls output.
-    await _player!.setVolume(100);
-    await _player!.setRate(savedSpeed);
 
     // FIX #OPT-10: removeListener first so that a re-entrant init() (e.g. after
     // an error retry) doesn't silently orphan the previous global slot.
@@ -252,27 +284,15 @@ class PlayerNotifier extends Notifier<PlayerState> {
       }
     });
 
-    // Lock-screen / notification controls. setActionHandler overwrites any
-    // previous handler — same single-slot semantics as VolumeService above —
-    // so a re-entrant init() doesn't leak handlers from a prior video.
-    MediaSessionService.setActionHandler(
-      onAction: _handleMediaAction,
-      onSeek: (pos) => _player?.seek(pos),
-    );
+    // Apply player + screen settings while the file is already opening.
+    await _player!.setVolume(100);
+    await _player!.setRate(savedSpeed);
+    if (savedBri != null) {
+      try { await _brightness.setScreenBrightness(savedBri); } catch (_) {}
+    }
 
-    _listenStreams(onReady: () {
-      state = state.copyWith(isInitialized: true);
-      _startHideTimer();
-      _syncMediaSessionMetadata();
-      if (resumeFrom != null && resumeFrom > Duration.zero) {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          _player?.seek(resumeFrom);
-        });
-      }
-    });
-
-    await _player!.open(Media(filePath));
-    await WakelockPlus.enable();
+    await openFuture;
+    WakelockPlus.enable(); // fire-and-forget — never gated the first frame
   }
 
   // ── Stream listeners ───────────────────────────────────────────────────────
@@ -299,6 +319,12 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     _subs.add(_player!.stream.position.listen((v) {
       state = state.copyWith(position: v);
+      // A-B repeat: jump back to A once playback reaches B.
+      final abStart = state.abRepeatStart;
+      final abEnd = state.abRepeatEnd;
+      if (abStart != null && abEnd != null && v >= abEnd) {
+        _player?.seek(abStart);
+      }
       // Throttled periodic save (3-second debounce).
       _saveTimer?.cancel();
       _saveTimer = Timer(const Duration(seconds: 3), _savePosition);
@@ -344,9 +370,14 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
     // Auto-play next video when current one finishes.
     _subs.add(_player!.stream.completed.listen((completed) {
-      if (completed && !_isDisposing && state.hasNext) {
-        _startAutoPlayCountdown();
+      if (!completed || _isDisposing) return;
+      // Sleep timer "end of video": stop here instead of auto-advancing.
+      if (state.sleepTimerEndOfVideo) {
+        _player?.pause();
+        state = state.copyWith(sleepTimerEndOfVideo: false);
+        return;
       }
+      if (state.hasNext) _startAutoPlayCountdown();
     }));
 
     // Surface any media errors so the UI can show a useful message.
@@ -490,6 +521,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
       hasError: false,
       errorMessage: null,
       zoomScale: 1.0, // reset zoom on video switch
+      subtitleDelay: 0.0, // subtitle offset is per-file
+      abRepeatStart: null, // A-B loop is per-file
+      abRepeatEnd: null,
     );
 
     _disposeStreams();
@@ -696,6 +730,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
   void _disposeInternal() {
     _autoPlayTimer?.cancel();
     _lockIconTimer?.cancel();
+    _sleepTimer?.cancel();
     _disposeStreams(); // cancels _saveTimer + all stream subs
     _player?.dispose();
     _player = null;
@@ -734,7 +769,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     showControls();
   }
 
-  void seekRelative(int seconds) {
+  void seekRelative(int seconds, {bool revealControls = true}) {
     if (_player == null) return;
     if (state.autoPlayCountdown != null) cancelAutoPlay();
     final newPos = state.position + Duration(seconds: seconds);
@@ -742,7 +777,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
         ? Duration.zero
         : (newPos > state.duration ? state.duration : newPos);
     _player!.seek(target);
-    showControls();
+    // Double-tap-to-skip passes revealControls:false — the seek-flash already
+    // gives feedback, so the full control overlay shouldn't pop up.
+    if (revealControls) showControls();
   }
 
   void beginSeek(double value) {
@@ -781,6 +818,94 @@ class PlayerNotifier extends Notifier<PlayerState> {
     state = state.copyWith(playbackSpeed: speed);
     PlayerPreferencesService.instance.saveSpeed(speed);
     showControls();
+  }
+
+  // ── Sleep timer ──────────────────────────────────────────────────────────────
+
+  /// Schedules auto-pause. Pass [duration] for a fixed delay, [endOfVideo] to
+  /// stop when the current video finishes, or neither to turn the timer off.
+  void setSleepTimer({Duration? duration, bool endOfVideo = false}) {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    if (endOfVideo) {
+      state = state.copyWith(
+          sleepTimerEndsAt: null, sleepTimerEndOfVideo: true);
+    } else if (duration != null) {
+      _sleepTimer = Timer(duration, _onSleepTimerFired);
+      state = state.copyWith(
+        sleepTimerEndsAt: DateTime.now().add(duration),
+        sleepTimerEndOfVideo: false,
+      );
+    } else {
+      state = state.copyWith(
+          sleepTimerEndsAt: null, sleepTimerEndOfVideo: false);
+    }
+    showControls();
+  }
+
+  void cancelSleepTimer() => setSleepTimer();
+
+  void _onSleepTimerFired() {
+    _sleepTimer = null;
+    _player?.pause();
+    state = state.copyWith(sleepTimerEndsAt: null, sleepTimerEndOfVideo: false);
+  }
+
+  // ── Subtitle sync offset ──────────────────────────────────────────────────────
+
+  /// Sets the subtitle delay in seconds (+ later, − earlier) via libmpv's
+  /// `sub-delay` property.
+  void setSubtitleDelay(double seconds) {
+    final clamped = seconds.clamp(-60.0, 60.0);
+    try {
+      // media_kit's NativePlayer exposes raw libmpv properties.
+      (_player?.platform as dynamic)
+          ?.setProperty('sub-delay', clamped.toStringAsFixed(3));
+    } catch (_) {}
+    state = state.copyWith(subtitleDelay: clamped);
+    showControls();
+  }
+
+  void adjustSubtitleDelay(double deltaSeconds) =>
+      setSubtitleDelay(state.subtitleDelay + deltaSeconds);
+
+  // ── Hold-to-fast-forward (press and hold for 2×) ──────────────────────────────
+
+  void startHoldFastForward() {
+    if (state.holdFastForward || _player == null) return;
+    _preHoldSpeed = state.playbackSpeed;
+    _player!.setRate(2.0);
+    state = state.copyWith(holdFastForward: true);
+  }
+
+  void endHoldFastForward() {
+    if (!state.holdFastForward) return;
+    _player?.setRate(_preHoldSpeed);
+    state = state.copyWith(holdFastForward: false);
+  }
+
+  // ── A-B repeat ───────────────────────────────────────────────────────────────
+
+  /// One button, three states: no point → set A; A set → set B (loops);
+  /// both set → clear.
+  void cycleAbRepeat() {
+    if (state.abRepeatStart == null) {
+      state = state.copyWith(abRepeatStart: state.position);
+    } else if (state.abRepeatEnd == null) {
+      // B must be after A; if the user is behind A, reset A to here instead.
+      if (state.position <= state.abRepeatStart!) {
+        state = state.copyWith(abRepeatStart: state.position);
+      } else {
+        state = state.copyWith(abRepeatEnd: state.position);
+      }
+    } else {
+      clearAbRepeat();
+    }
+    showControls();
+  }
+
+  void clearAbRepeat() {
+    state = state.copyWith(abRepeatStart: null, abRepeatEnd: null);
   }
 
   void setAudioTrack(AudioTrack track) {

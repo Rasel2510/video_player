@@ -15,6 +15,7 @@ import '../presentation/widgets/library/library_header.dart';
 import '../presentation/widgets/library/no_results.dart';
 import '../presentation/widgets/library/permission_prompt.dart';
 import '../presentation/widgets/library/scanning_screen.dart';
+import '../presentation/widgets/library/search_video_row.dart';
 import 'player_screen.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
@@ -216,6 +217,23 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         .toList();
   }
 
+  /// Videos matching the query by filename, searched across every folder —
+  /// not just the ones whose folder name also matches — so a video can be
+  /// found without knowing which folder it lives in.
+  List<({VideoFile video, VideoFolder folder})> _matchedVideos(
+      List<VideoFolder> folders) {
+    if (_searchQuery.isEmpty) return const [];
+    final out = <({VideoFile video, VideoFolder folder})>[];
+    for (final folder in folders) {
+      for (final v in folder.videos) {
+        if (v.name.toLowerCase().contains(_searchQuery)) {
+          out.add((video: v, folder: folder));
+        }
+      }
+    }
+    return out;
+  }
+
   void _toggleSearch() {
     setState(() {
       _searchOpen = !_searchOpen;
@@ -271,6 +289,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     // inside itemBuilder via _ensureResumeLoaded().
 
     final displayFolders = _filtered(allFolders);
+    // Video-name matches across the whole library, shown below any matching
+    // folders so a video can be found without knowing which folder it's in.
+    final matchedVideos = _matchedVideos(allFolders);
+    final showVideoHeader =
+        displayFolders.isNotEmpty && matchedVideos.isNotEmpty;
+    final totalResults = displayFolders.length +
+        (showVideoHeader ? 1 : 0) +
+        matchedVideos.length;
 
     return Column(
       children: [
@@ -296,7 +322,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                 ref.read(foldersProvider.notifier).load(forceScan: true),
             color: context.colors.accent,
             backgroundColor: context.colors.surface,
-            child: displayFolders.isEmpty
+            child: totalResults == 0
                 ? NoResults(query: _searchQuery)
                 : ListView.builder(
                     padding: EdgeInsets.fromLTRB(
@@ -305,26 +331,48 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                       16,
                       8 + MediaQuery.of(context).padding.bottom,
                     ),
-                    itemCount: displayFolders.length,
+                    itemCount: totalResults,
                     itemBuilder: (_, i) {
-                      final folder     = displayFolders[i];
-                      // FIX #OPT-6: trigger resume load the first time this
-                      // item scrolls into view rather than loading all at once.
-                      _ensureResumeLoaded(folder);
-                      final resume     = _folderResumes[folder.path];
-                      final isExternal = hasMultiStorage &&
-                          !folder.path.contains('/emulated/');
-                      // newPaths already watched above — no extra select needed.
-                      final isNew = newPaths.contains(folder.path);
-                      return FolderCard(
-                        folder: folder,
-                        isExternal: isExternal,
-                        isNew: isNew,
-                        resumePosition: resume?.position,
-                        onTap: () => _openFolder(folder),
-                        onResume: resume != null
-                            ? () => _resumeFolder(folder, resume)
-                            : null,
+                      if (i < displayFolders.length) {
+                        final folder     = displayFolders[i];
+                        // FIX #OPT-6: trigger resume load the first time this
+                        // item scrolls into view rather than loading all at once.
+                        _ensureResumeLoaded(folder);
+                        final resume     = _folderResumes[folder.path];
+                        final isExternal = hasMultiStorage &&
+                            !folder.path.contains('/emulated/');
+                        // newPaths already watched above — no extra select needed.
+                        final isNew = newPaths.contains(folder.path);
+                        return FolderCard(
+                          folder: folder,
+                          isExternal: isExternal,
+                          isNew: isNew,
+                          resumePosition: resume?.position,
+                          onTap: () => _openFolder(folder),
+                          onResume: resume != null
+                              ? () => _resumeFolder(folder, resume)
+                              : null,
+                        );
+                      }
+
+                      var idx = i - displayFolders.length;
+                      if (showVideoHeader) {
+                        if (idx == 0) {
+                          return Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+                            child: Text(
+                              'Videos · ${matchedVideos.length}',
+                              style: context.textStyles.label,
+                            ),
+                          );
+                        }
+                        idx -= 1;
+                      }
+                      final match = matchedVideos[idx];
+                      return SearchVideoRow(
+                        video: match.video,
+                        folderName: match.folder.name,
+                        onTap: () => widget.onOpenVideo(match.video),
                       );
                     },
                   ),

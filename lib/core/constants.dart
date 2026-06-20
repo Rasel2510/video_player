@@ -9,4 +9,8 @@ abstract final class AppConstants {
   /// notifications so newly downloaded videos appear without a filesystem scan.
   static const mediaStoreChannel =
       'com.example.flutter_video_player/media_store';
+
+  /// Delivers videos opened from outside the app (VIEW intents / "Open with").
+  static const openFileChannel =
+      'com.example.flutter_video_player/open_file';
 }
