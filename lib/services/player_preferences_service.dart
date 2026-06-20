@@ -20,6 +20,9 @@ class PlayerPreferencesService {
   static const _themeModeKey = 'app_theme_mode_v1';
   static const _loopModeKey  = 'player_loop_mode_v1';
   static const _scanModeKey  = 'library_scan_mode_v1';
+  static const _subFontSizeKey   = 'subtitle_font_size_v1';
+  static const _subColorIndexKey = 'subtitle_color_index_v1';
+  static const _subBackgroundKey = 'subtitle_background_v1';
 
   // ── Fit mode ──────────────────────────────────────────────────────────────
 
@@ -85,7 +88,11 @@ class PlayerPreferencesService {
   /// can be read synchronously from the first frame. Call once during startup.
   Future<void> preload() async {
     try {
-      _scanModeIndexCache = (await _p).getInt(_scanModeKey) ?? 0;
+      final p = await _p;
+      _scanModeIndexCache = p.getInt(_scanModeKey) ?? 0;
+      _subtitleFontSizeCache = p.getDouble(_subFontSizeKey) ?? 32.0;
+      _subtitleColorIndexCache = p.getInt(_subColorIndexKey) ?? 0;
+      _subtitleBackgroundCache = p.getBool(_subBackgroundKey) ?? true;
     } catch (_) {}
   }
 
@@ -102,5 +109,32 @@ class PlayerPreferencesService {
   Future<void> saveScanModeIndex(int index) async {
     _scanModeIndexCache = index;
     try { await (await _p).setInt(_scanModeKey, index); } catch (_) {}
+  }
+
+  // ── Subtitle style (font size / color / background) ───────────────────────
+  // Synchronously-readable so the player can apply the saved style on the
+  // very first frame instead of flashing the default. Warmed by [preload].
+
+  double _subtitleFontSizeCache = 32.0;
+  int _subtitleColorIndexCache = 0;
+  bool _subtitleBackgroundCache = true;
+
+  double get subtitleFontSizeCached => _subtitleFontSizeCache;
+  int get subtitleColorIndexCached => _subtitleColorIndexCache;
+  bool get subtitleBackgroundCached => _subtitleBackgroundCache;
+
+  Future<void> saveSubtitleFontSize(double size) async {
+    _subtitleFontSizeCache = size;
+    try { await (await _p).setDouble(_subFontSizeKey, size); } catch (_) {}
+  }
+
+  Future<void> saveSubtitleColorIndex(int index) async {
+    _subtitleColorIndexCache = index;
+    try { await (await _p).setInt(_subColorIndexKey, index); } catch (_) {}
+  }
+
+  Future<void> saveSubtitleBackground(bool enabled) async {
+    _subtitleBackgroundCache = enabled;
+    try { await (await _p).setBool(_subBackgroundKey, enabled); } catch (_) {}
   }
 }

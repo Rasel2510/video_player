@@ -140,4 +140,20 @@ class ThumbnailService {
       if (await cacheFile.exists()) await cacheFile.delete();
     } catch (_) {}
   }
+
+  /// Moves a cached thumbnail from [oldPath] to [newPath] — used when a video
+  /// file is renamed on disk, so the thumbnail doesn't need to regenerate.
+  Future<void> rename(String oldPath, String newPath) async {
+    final resolved = _resolved.remove(oldPath);
+    _inFlight.remove(oldPath);
+    try {
+      final oldFile = await _cacheFileFor(oldPath);
+      if (await oldFile.exists()) {
+        final newFile = await _cacheFileFor(newPath);
+        _resolved[newPath] = await oldFile.rename(newFile.path);
+        return;
+      }
+    } catch (_) {}
+    if (resolved != null) _resolved[newPath] = resolved;
+  }
 }

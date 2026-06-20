@@ -162,6 +162,23 @@ class DurationCacheService {
     } catch (_) {}
   }
 
+  /// Moves a cached duration from [oldPath] to [newPath] — used when a video
+  /// file is renamed on disk, so it doesn't need to be re-probed.
+  Future<void> rename(String oldPath, String newPath) async {
+    final p = await _p;
+    final ms = p.getInt(_key(oldPath));
+    if (ms != null) {
+      await p.setInt(_key(newPath), ms);
+      _memCache[newPath] = Duration(milliseconds: ms);
+    } else {
+      final cached = _memCache[oldPath];
+      if (cached != null) _memCache[newPath] = cached;
+    }
+    _memCache.remove(oldPath);
+    _probeInFlight.remove(oldPath);
+    await p.remove(_key(oldPath));
+  }
+
   Future<List<VideoFile>> enrichAll(List<VideoFile> files) async {
     final p = await _p;
     return files.map((vf) {

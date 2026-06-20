@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_video_player/core/theme/app_theme.dart';
+import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import '../models/video_file.dart';
 import '../models/video_folder.dart';
@@ -36,6 +37,9 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   final Map<String, Duration> _positions = {};
   final Map<String, Duration> _durations = {};
   final Set<String> _deletedPaths = {};
+  // Maps a video's original path to its renamed counterpart — widget.folder.videos
+  // is a fixed snapshot, so renames are applied here rather than mutating it.
+  final Map<String, VideoFile> _renamedOverrides = {};
   bool _positionsLoaded = false;
 
   // Sort
@@ -341,7 +345,10 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
         _sortedDeletedCount == _deletedPaths.length) {
       return _sortedCache!;
     }
-    final list = base.where((v) => !_deletedPaths.contains(v.path)).toList();
+    final list = base
+        .where((v) => !_deletedPaths.contains(v.path))
+        .map((v) => _renamedOverrides[v.path] ?? v)
+        .toList();
     switch (_sortBy) {
       case SortOption.name:
         // Precompute keys — toLowerCase() in a comparator runs O(n log n) times.
@@ -470,6 +477,10 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
           Navigator.pop(context);
           Share.shareXFiles([XFile(vf.path)], text: vf.name);
         },
+        onRename: () {
+          Navigator.pop(context);
+          _showRenameDialog(vf);
+        },
         onDetails: () {
           Navigator.pop(context);
           _showVideoDetails(vf);
@@ -561,6 +572,106 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     if (remaining == 0 && mounted) {
       Navigator.pop(context);
     }
+  }
+
+  // ── Rename ─────────────────────────────────────────────────────────────────
+
+  Future<void> _showRenameDialog(VideoFile vf) async {
+    // Extension is kept fixed — only the base name is editable, so a rename
+    // can't accidentally produce a file the player no longer recognises.
+    final ext = p.extension(vf.name);
+    final baseName =
+        ext.isNotEmpty ? vf.name.substring(0, vf.name.length - ext.length) : vf.name;
+    final ctrl = TextEditingController(text: baseName);
+
+    final newBaseName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename video'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          decoration: InputDecoration(
+            hintText: 'File name',
+            suffixText: ext,
+          ),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+
+    if (newBaseName == null || !mounted) return;
+    final trimmed = newBaseName.trim();
+    if (trimmed.isEmpty || trimmed == baseName) return;
+    await _renameVideo(vf, trimmed, ext);
+  }
+
+  Future<void> _renameVideo(VideoFile vf, String newBaseName, String ext) async {
+    // Strip characters that are illegal in filenames on Android/Windows.
+    final sanitized = newBaseName.replaceAll(RegExp(r'[/\\:*?"<>|]'), '_');
+    if (sanitized.isEmpty) return;
+
+    final newName = '$sanitized$ext';
+    final newPath = p.join(p.dirname(vf.path), newName);
+    if (newPath == vf.path) return;
+
+    if (await File(newPath).exists()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('A file with that name already exists')),
+      );
+      return;
+    }
+
+    try {
+      await File(vf.path).rename(newPath);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not rename file')),
+      );
+      return;
+    }
+
+    // Carry cached position/duration/thumbnail over to the new path so
+    // nothing needs to be re-probed or re-generated after the rename.
+    await Future.wait([
+      PositionService.instance.rename(vf.path, newPath),
+      DurationCacheService.instance.rename(vf.path, newPath),
+      ThumbnailService.instance.rename(vf.path, newPath),
+    ]);
+
+    final renamed = VideoFile(
+      path: newPath,
+      name: newName,
+      size: vf.size,
+      modified: vf.modified,
+      duration: vf.duration,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      final dur = _durations.remove(vf.path);
+      final pos = _positions.remove(vf.path);
+      if (dur != null) _durations[newPath] = dur;
+      if (pos != null) _positions[newPath] = pos;
+      _renamedOverrides[vf.path] = renamed;
+      _sortedCache = null; // force re-sort
+    });
+
+    ref.read(foldersProvider.notifier).renameVideo(vf.path, renamed);
   }
 
   // ── Sort picker ────────────────────────────────────────────────────────────

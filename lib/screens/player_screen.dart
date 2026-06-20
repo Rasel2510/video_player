@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../models/video_file.dart';
 import '../presentation/providers/player_provider.dart';
+import '../presentation/providers/subtitle_style_provider.dart';
 import '../presentation/widgets/player/player_controls_overlay.dart';
 import '../presentation/widgets/player/speed_sheet.dart';
 import '../presentation/widgets/player/volume_sheet.dart';
@@ -322,6 +323,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     return const Center(child: CircularProgressIndicator());
                   }
 
+                  final subStyle = ref.watch(subtitleStyleProvider);
+                  final subtitleConfig = SubtitleViewConfiguration(
+                    style: TextStyle(
+                      height: 1.4,
+                      fontSize: subStyle.fontSize,
+                      color: subStyle.color,
+                      fontWeight: FontWeight.bold,
+                      backgroundColor: subStyle.background
+                          ? const Color(0xAA000000)
+                          : Colors.transparent,
+                      // No background box: add a shadow outline instead so
+                      // the text stays legible against bright video frames.
+                      shadows: subStyle.background
+                          ? null
+                          : const [
+                              Shadow(blurRadius: 4, color: Colors.black),
+                              Shadow(blurRadius: 8, color: Colors.black),
+                            ],
+                    ),
+                  );
+
                   return Positioned.fill(
                     // FIX #OPT-11: Transform.scale at 1.0 still composites an
                     // extra layer. Skip the wrapper entirely when not zoomed.
@@ -332,6 +354,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                 .videoController!,
                             fit: _boxFit(fitMode),
                             controls: NoVideoControls,
+                            subtitleViewConfiguration: subtitleConfig,
                           )
                         : Transform.scale(
                             scale: zoomScale,
@@ -341,6 +364,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                   .videoController!,
                               fit: _boxFit(fitMode),
                               controls: NoVideoControls,
+                              subtitleViewConfiguration: subtitleConfig,
                             ),
                           ),
                   );

@@ -49,4 +49,13 @@ class PositionService {
     final ms = (await _p).getInt(_key(videoPath));
     return ms != null && ms >= _minSaveMs;
   }
+
+  /// Moves a saved position from [oldPath] to [newPath] — used when a video
+  /// file is renamed on disk, so its resume point isn't lost.
+  Future<void> rename(String oldPath, String newPath) async {
+    final p = await _p;
+    final ms = p.getInt(_key(oldPath));
+    if (ms != null) await p.setInt(_key(newPath), ms);
+    await p.remove(_key(oldPath));
+  }
 }

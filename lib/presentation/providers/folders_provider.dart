@@ -724,6 +724,23 @@ class FoldersNotifier extends Notifier<FoldersState> {
     _saveCache(updatedFolders);
   }
 
+  /// Surgically replaces a single video in state with its renamed counterpart
+  /// (no rescan needed) and persists the updated folder list to cache.
+  void renameVideo(String oldPath, VideoFile renamed) {
+    final updatedFolders = state.folders.map((folder) {
+      final idx = folder.videos.indexWhere((v) => v.path == oldPath);
+      if (idx == -1) return folder;
+      final updatedVideos = List<VideoFile>.from(folder.videos);
+      updatedVideos[idx] = renamed;
+      return VideoFolder(path: folder.path, videos: updatedVideos);
+    }).toList();
+
+    final updatedNewPaths = Set<String>.from(state.newPaths)..remove(oldPath);
+
+    state = state.copyWith(folders: updatedFolders, newPaths: updatedNewPaths);
+    _saveCache(updatedFolders);
+  }
+
   /// Surgically removes multiple videos from the in-memory state and persists the
   /// updated folder list to cache.
   void removeVideos(List<String> videoPaths) {
