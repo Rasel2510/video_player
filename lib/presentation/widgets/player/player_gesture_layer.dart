@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/player_provider.dart';
 import 'seek_flash.dart';
@@ -43,12 +44,9 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
   double _seekStartProgress = 0;
 
   // ── Hold-to-fast-forward (press and hold → 2×) ─────────────────────────────
-  Timer? _holdFFTimer;
   bool _holdFFActive = false;
 
   void _cancelHoldFF() {
-    _holdFFTimer?.cancel();
-    _holdFFTimer = null;
     if (_holdFFActive) {
       _holdFFActive = false;
       ref.read(playerProvider.notifier).endHoldFastForward();
@@ -57,7 +55,6 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
 
   @override
   void dispose() {
-    _holdFFTimer?.cancel();
     _seekFlashCtrl.dispose();
     super.dispose();
   }
@@ -80,11 +77,12 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final (:isLocked, :controlsVisible, :holdFastForward) =
+    final (:isLocked, :controlsVisible, :holdFastForward, :seekInterval) =
         ref.watch(playerProvider.select((s) => (
               isLocked: s.isLocked,
               controlsVisible: s.controlsVisible,
               holdFastForward: s.holdFastForward,
+              seekInterval: s.seekInterval,
             )));
 
     return Stack(
@@ -104,11 +102,11 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
             if (isLeft) {
               ref
                   .read(playerProvider.notifier)
-                  .seekRelative(-10, revealControls: false);
+                  .seekRelative(-seekInterval, revealControls: false);
             } else {
               ref
                   .read(playerProvider.notifier)
-                  .seekRelative(10, revealControls: false);
+                  .seekRelative(seekInterval, revealControls: false);
             }
             _triggerSeekFlash(isLeft);
           },
@@ -128,11 +126,6 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
               _swipeActive = true;
               _swipeCommitted = false;
               _isSeekSwipe = false;
-              // Press-and-hold (still) for ~450 ms → temporary 2× fast-forward.
-              _holdFFTimer = Timer(const Duration(milliseconds: 450), () {
-                _holdFFActive = true;
-                ref.read(playerProvider.notifier).startHoldFastForward();
-              });
             }
           },
           onScaleUpdate: (details) {
@@ -150,7 +143,6 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
                 final dx = details.localFocalPoint.dx - _dragStartDx;
                 final dy = details.localFocalPoint.dy - _dragStartDy;
                 if (dx.abs() > 15 || dy.abs() > 15) {
-                  _holdFFTimer?.cancel(); // moved → it's a swipe, not a hold
                   _swipeCommitted = true;
                   if (dx.abs() > dy.abs()) {
                     _isSeekSwipe = true;
@@ -202,6 +194,18 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
               }
             }
           },
+          onLongPressStart: (details) {
+            if (isLocked) return;
+            HapticFeedback.mediumImpact();
+            _holdFFActive = true;
+            ref.read(playerProvider.notifier).startHoldFastForward();
+          },
+          onLongPressEnd: (details) {
+            _cancelHoldFF();
+          },
+          onLongPressUp: () {
+            _cancelHoldFF();
+          },
           child: widget.child,
         ),
 
@@ -212,7 +216,11 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
             top: 0,
             bottom: 0,
             width: size.width / 2,
-            child: SeekFlash(animation: _seekFlashAnim, isForward: false),
+            child: SeekFlash(
+              animation: _seekFlashAnim,
+              isForward: false,
+              seekInterval: seekInterval,
+            ),
           ),
         if (_seekFlashRight)
           Positioned(
@@ -220,7 +228,11 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
             top: 0,
             bottom: 0,
             width: size.width / 2,
-            child: SeekFlash(animation: _seekFlashAnim, isForward: true),
+            child: SeekFlash(
+              animation: _seekFlashAnim,
+              isForward: true,
+              seekInterval: seekInterval,
+            ),
           ),
 
         // Hold-to-fast-forward badge.

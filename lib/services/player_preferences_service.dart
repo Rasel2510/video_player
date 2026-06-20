@@ -23,6 +23,8 @@ class PlayerPreferencesService {
   static const _subFontSizeKey   = 'subtitle_font_size_v1';
   static const _subColorIndexKey = 'subtitle_color_index_v1';
   static const _subBackgroundKey = 'subtitle_background_v1';
+  static const _subBgColorIndexKey = 'subtitle_bg_color_index_v1';
+  static const _seekIntervalKey  = 'player_seek_interval_v1';
 
   // ── Fit mode ──────────────────────────────────────────────────────────────
 
@@ -93,6 +95,8 @@ class PlayerPreferencesService {
       _subtitleFontSizeCache = p.getDouble(_subFontSizeKey) ?? 32.0;
       _subtitleColorIndexCache = p.getInt(_subColorIndexKey) ?? 0;
       _subtitleBackgroundCache = p.getBool(_subBackgroundKey) ?? true;
+      _subtitleBgColorIndexCache = p.getInt(_subBgColorIndexKey) ?? 0;
+      _seekIntervalCache = p.getInt(_seekIntervalKey) ?? 10;
     } catch (_) {}
   }
 
@@ -118,10 +122,12 @@ class PlayerPreferencesService {
   double _subtitleFontSizeCache = 32.0;
   int _subtitleColorIndexCache = 0;
   bool _subtitleBackgroundCache = true;
+  int _subtitleBgColorIndexCache = 0;
 
   double get subtitleFontSizeCached => _subtitleFontSizeCache;
   int get subtitleColorIndexCached => _subtitleColorIndexCache;
   bool get subtitleBackgroundCached => _subtitleBackgroundCache;
+  int get subtitleBgColorIndexCached => _subtitleBgColorIndexCache;
 
   Future<void> saveSubtitleFontSize(double size) async {
     _subtitleFontSizeCache = size;
@@ -136,5 +142,20 @@ class PlayerPreferencesService {
   Future<void> saveSubtitleBackground(bool enabled) async {
     _subtitleBackgroundCache = enabled;
     try { await (await _p).setBool(_subBackgroundKey, enabled); } catch (_) {}
+  }
+
+  Future<void> saveSubtitleBgColorIndex(int index) async {
+    _subtitleBgColorIndexCache = index;
+    try { await (await _p).setInt(_subBgColorIndexKey, index); } catch (_) {}
+  }
+
+  // ── Seek interval ─────────────────────────────────────────────────────────
+
+  int _seekIntervalCache = 10;
+  int get seekIntervalCached => _seekIntervalCache;
+
+  Future<void> saveSeekInterval(int seconds) async {
+    _seekIntervalCache = seconds;
+    try { await (await _p).setInt(_seekIntervalKey, seconds); } catch (_) {}
   }
 }

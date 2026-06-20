@@ -6,18 +6,18 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../models/video_file.dart';
 import '../presentation/providers/player_provider.dart';
 import '../presentation/providers/subtitle_style_provider.dart';
-import '../presentation/widgets/player/player_controls_overlay.dart';
+import '../presentation/widgets/player/player_controls_overlay/player_controls_overlay.dart';
 import '../presentation/widgets/player/speed_sheet.dart';
-import '../presentation/widgets/player/volume_sheet.dart';
+import '../presentation/widgets/player/volume_sheet/volume_sheet.dart';
+import '../presentation/widgets/player/player_gesture_layer.dart';
 import '../presentation/widgets/player/audio_track_sheet.dart';
-import '../presentation/widgets/player/subtitle_sheet.dart';
-import '../presentation/widgets/player/sleep_timer_sheet.dart';
+import '../presentation/widgets/player/subtitle_sheet/subtitle_sheet.dart';
+import '../presentation/widgets/player/sleep_timer_sheet/sleep_timer_sheet.dart';
 import '../services/media_session_service.dart';
 import '../presentation/widgets/player/lock_overlay.dart';
 import '../presentation/widgets/player/auto_play_countdown.dart';
 import '../presentation/widgets/player/error_state.dart';
 import '../presentation/widgets/player/swipe_hud.dart';
-import '../presentation/widgets/player/player_gesture_layer.dart';
 import '../presentation/widgets/player/zoom_indicator_overlay.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
@@ -98,7 +98,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   // ── Sheet helpers ──────────────────────────────────────────────────────────
 
-  void _showSpeedSheet(BuildContext ctx, double speed) => showModalBottomSheet(
+  void _showSpeedSheet(BuildContext ctx, double speed, int seekInterval) => showModalBottomSheet(
         context: ctx,
         useSafeArea: true,
         // Prevent Flutter from drawing its own system drag handle on top of
@@ -110,7 +110,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         backgroundColor: Colors.transparent,
         builder: (_) => SpeedSheet(
           currentSpeed: speed,
-          onSelect: (s) => _notifier.setSpeed(s),
+          currentSeekInterval: seekInterval,
+          onSelectSpeed: (s) => _notifier.setSpeed(s),
+          onSelectSeekInterval: (s) => _notifier.setSeekInterval(s),
         ),
       );
 
@@ -219,11 +221,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             // show/hide is driven by _lockIconCtrl (an AnimationController
             // local to this State) so it never triggers a Consumer rebuild
             // and therefore never re-composites the Video platform view.
-            final (:isLocked, :controlsVisible) =
+            final (:isLocked, :controlsVisible, :isPipMode) =
                 ref.watch(playerProvider.select((s) => (
                       isLocked: s.isLocked,
                       controlsVisible: s.controlsVisible,
+                      isPipMode: s.isPipMode,
                     )));
+
+            // In PiP mode: show only the raw video, everything else is hidden.
+            if (isPipMode) return child!;
 
             return Stack(
               children: [
@@ -331,7 +337,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       color: subStyle.color,
                       fontWeight: FontWeight.bold,
                       backgroundColor: subStyle.background
-                          ? const Color(0xAA000000)
+                          ? subStyle.backgroundColor
                           : Colors.transparent,
                       // No background box: add a shadow outline instead so
                       // the text stays legible against bright video frames.
@@ -450,14 +456,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       onBack: () => Navigator.pop(context),
                       onTogglePlay: notifier.togglePlay,
                       onCycleFitMode: notifier.cycleFitMode,
-                      onShowSpeed: () => _showSpeedSheet(
-                          context, ref.read(playerProvider).playbackSpeed),
+                      onShowSpeed: () {
+                        final s = ref.read(playerProvider);
+                        _showSpeedSheet(context, s.playbackSpeed, s.seekInterval);
+                      },
                       onShowVolume: () => _showVolumeSheet(
                           context, ref.read(playerProvider).volume),
                       onShowAudio: () => _showAudioTrackSheet(context),
                       onShowSubtitle: () => _showSubtitleSheet(context),
-                      onSeekBack: () => notifier.seekRelative(-10),
-                      onSeekForward: () => notifier.seekRelative(10),
+                      onSeekBack: () => notifier.seekRelative(-ref.read(playerProvider).seekInterval),
+                      onSeekForward: () => notifier.seekRelative(ref.read(playerProvider).seekInterval),
                       onToggleFullscreen: notifier.cycleRotationMode,
                       onSeekStart: notifier.beginSeek,
                       onSeekUpdate: notifier.updateSeek,
@@ -504,4 +512,5 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 }
- 
+
+

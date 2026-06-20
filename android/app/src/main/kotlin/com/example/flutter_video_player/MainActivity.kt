@@ -410,6 +410,15 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        // Notify Flutter so it can hide controls, gesture layer, etc.
+        methodChannel?.invokeMethod("onPipModeChanged", isInPictureInPictureMode)
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     override fun onDestroy() {

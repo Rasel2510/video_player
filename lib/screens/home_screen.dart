@@ -6,7 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import '../core/theme/app_theme.dart';
 import '../models/video_file.dart';
 import '../presentation/widgets/resume_dialog.dart';
-import '../presentation/widgets/library/scan_mode_sheet.dart';
+import '../presentation/widgets/library/scan_mode_sheet/scan_mode_sheet.dart';
 import '../presentation/providers/theme_provider.dart';
 import '../presentation/providers/player_provider.dart';
 import '../presentation/providers/scan_mode_provider.dart';
@@ -17,6 +17,7 @@ import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
 import 'library_screen.dart';
 import 'player_screen.dart';
+import '../presentation/widgets/smooth_page_route.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -90,8 +91,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (!context.mounted) return;
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => PlayerScreen(
+      SmoothPageRoute(
+        child: PlayerScreen(
           filePath: vf.path,
           fileName: vf.name,
           resumeFrom: resumeFrom,

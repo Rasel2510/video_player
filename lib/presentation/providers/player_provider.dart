@@ -63,6 +63,7 @@ class PlayerState with _$PlayerState {
     @Default(false) bool isInitialized,
     @Default(false) bool isPlaying,
     @Default(true) bool controlsVisible,
+    @Default(false) bool isPipMode,
     @Default(RotationMode.auto) RotationMode rotationMode,
     @Default(false) bool isSeeking,
     @Default(0.0) double seekValue,
@@ -99,6 +100,8 @@ class PlayerState with _$PlayerState {
     // A-B repeat: loop between these two points when both are set.
     Duration? abRepeatStart,
     Duration? abRepeatEnd,
+    // Double-tap seek interval in seconds.
+    @Default(10) int seekInterval,
   }) = _PlayerState;
 
   double get progress => duration.inMilliseconds > 0
@@ -216,7 +219,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
     // are merged in via copyWith below — using copyWith rather than a second
     // full PlayerState assignment means an early stream event (e.g. onReady
     // setting isInitialized) isn't clobbered when the prefs land.
-    state = PlayerState(folderVideos: folderVideos, currentIndex: initialIndex);
+    state = PlayerState(
+      folderVideos: folderVideos, 
+      currentIndex: initialIndex,
+      seekInterval: PlayerPreferencesService.instance.seekIntervalCached,
+    );
 
     _player = Player();
     _videoController = VideoController(_player!);
@@ -237,6 +244,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
     MediaSessionService.setActionHandler(
       onAction: _handleMediaAction,
       onSeek: (pos) => _player?.seek(pos),
+      onPipModeChanged: (isPip) {
+        state = state.copyWith(isPipMode: isPip);
+      },
     );
 
     // Start decoding immediately — overlaps the prefs reads above and the
@@ -818,6 +828,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
     state = state.copyWith(playbackSpeed: speed);
     PlayerPreferencesService.instance.saveSpeed(speed);
     showControls();
+  }
+
+  void setSeekInterval(int seconds) {
+    state = state.copyWith(seekInterval: seconds);
+    PlayerPreferencesService.instance.saveSeekInterval(seconds);
   }
 
   // ── Sleep timer ──────────────────────────────────────────────────────────────

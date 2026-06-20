@@ -1,7 +1,7 @@
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_video_player/core/theme/app_theme.dart';
+import '../core/theme/app_theme.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/video_file.dart';
 import '../models/video_folder.dart';
@@ -16,6 +16,7 @@ import '../presentation/widgets/library/no_results.dart';
 import '../presentation/widgets/library/permission_prompt.dart';
 import '../presentation/widgets/library/scanning_screen.dart';
 import '../presentation/widgets/library/search_video_row.dart';
+import '../presentation/widgets/smooth_page_route.dart';
 import 'player_screen.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
@@ -174,7 +175,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   void _openFolder(VideoFolder folder) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => FolderVideosScreen(folder: folder)),
+      SmoothPageRoute(child: FolderVideosScreen(folder: folder)),
     ).then((_) {
       if (mounted) {
         setState(() => _folderResumes.remove(folder.path));
@@ -190,8 +191,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (!mounted) return;
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => PlayerScreen(
+      SmoothPageRoute(
+        child: PlayerScreen(
           filePath: resume.video.path,
           fileName: resume.video.name,
           resumeFrom: resume.position,
@@ -390,3 +391,4 @@ class _FolderResume {
   final Duration position;
   const _FolderResume(this.video, this.position);
 }
+

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/utils/duration_formatter.dart';
-import '../../providers/player_provider.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/duration_formatter.dart';
+import '../../../providers/player_provider.dart';
+
+part 'widgets/step_button.dart';
 
 /// Bottom sheet to set a sleep timer (auto-pause after a delay or at end of
 /// video). Reads/drives the player provider directly and ticks once a second
@@ -17,6 +19,7 @@ class SleepTimerSheet extends ConsumerStatefulWidget {
 
 class _SleepTimerSheetState extends ConsumerState<SleepTimerSheet> {
   Timer? _ticker;
+  int _customMinutes = 60;
 
   static const _presets = [15, 30, 45, 60, 90];
 
@@ -109,6 +112,63 @@ class _SleepTimerSheetState extends ConsumerState<SleepTimerSheet> {
 
           Divider(color: context.colors.divider, height: 1),
 
+          // Custom timer
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Row(
+              children: [
+                Icon(Icons.tune_rounded, color: context.colors.textMuted, size: 18),
+                const SizedBox(width: 14),
+                Text('Custom', style: TextStyle(color: context.colors.textSecondary, fontSize: 13)),
+                const Spacer(),
+                _StepButton(
+                  icon: Icons.remove_rounded,
+                  onTap: () {
+                    if (_customMinutes > 5) {
+                      setState(() => _customMinutes -= 5);
+                    }
+                  },
+                ),
+                SizedBox(
+                  width: 50,
+                  child: Text(
+                    '${_customMinutes}m',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: context.colors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+                _StepButton(
+                  icon: Icons.add_rounded,
+                  onTap: () {
+                    setState(() => _customMinutes += 5);
+                  },
+                ),
+                const SizedBox(width: 16),
+                GestureDetector(
+                  onTap: () {
+                    notifier.setSleepTimer(duration: Duration(minutes: _customMinutes));
+                    Navigator.pop(context);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: context.colors.accent,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text('SET', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          Divider(color: context.colors.divider, height: 1),
+
           for (final m in _presets)
             _row(
               context,
@@ -191,3 +251,5 @@ class _SleepTimerSheetState extends ConsumerState<SleepTimerSheet> {
     );
   }
 }
+
+

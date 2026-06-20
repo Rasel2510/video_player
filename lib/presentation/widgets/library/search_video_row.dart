@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_video_player/core/theme/app_theme.dart';
 import 'package:flutter_video_player/models/video_file.dart';
 import '../folder_videos/format_badge.dart';
-import '../thumbnail_widget.dart';
+import '../thumbnail_widget/thumbnail_widget.dart';
 
 /// A single video result when searching across every folder in the library
 /// (as opposed to [FolderCard], which represents a whole folder match).
@@ -96,3 +96,4 @@ class SearchVideoRow extends StatelessWidget {
     );
   }
 }
+

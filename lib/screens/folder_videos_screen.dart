@@ -22,6 +22,7 @@ import '../presentation/widgets/folder_videos/sort_sheet.dart';
 import '../presentation/widgets/folder_videos/video_card.dart';
 import '../presentation/widgets/folder_videos/video_options_sheet.dart';
 import 'player_screen.dart';
+import '../presentation/widgets/smooth_page_route.dart';
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -175,6 +176,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      useSafeArea: true,
       builder: (ctx) {
         return Container(
           decoration: BoxDecoration(
@@ -428,8 +430,8 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     ref.read(foldersProvider.notifier).markSeen(vf.path);
     if (!mounted) return;
 
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => PlayerScreen(
+    await Navigator.of(context).push(SmoothPageRoute(
+      child: PlayerScreen(
         filePath: vf.path,
         fileName: vf.name,
         resumeFrom: resumeFrom,

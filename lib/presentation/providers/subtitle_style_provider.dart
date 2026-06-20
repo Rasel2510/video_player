@@ -10,27 +10,49 @@ const subtitleColorPresets = <Color>[
   Color(0xFFFFEB3B), // Yellow
   Color(0xFF00E5FF), // Cyan
   Color(0xFF76FF03), // Green
+  Color(0xFFFF4081), // Pink
+  Color(0xFFFF9800), // Orange
+  Color(0xFFE040FB), // Purple
+];
+
+const subtitleBgColorPresets = <Color>[
+  Color(0xAA000000), // Black (default)
+  Color(0xAA2196F3), // Blue
+  Color(0xAA4CAF50), // Green
+  Color(0xAAF44336), // Red
+  Color(0xAA9C27B0), // Purple
 ];
 
 class SubtitleStyle {
   final double fontSize;
   final int colorIndex;
   final bool background;
+  final int backgroundColorIndex;
 
   const SubtitleStyle({
     this.fontSize = 32.0,
     this.colorIndex = 0,
     this.background = true,
+    this.backgroundColorIndex = 0,
   });
 
   Color get color =>
       subtitleColorPresets[colorIndex.clamp(0, subtitleColorPresets.length - 1)];
 
-  SubtitleStyle copyWith({double? fontSize, int? colorIndex, bool? background}) =>
+  Color get backgroundColor =>
+      subtitleBgColorPresets[backgroundColorIndex.clamp(0, subtitleBgColorPresets.length - 1)];
+
+  SubtitleStyle copyWith({
+    double? fontSize,
+    int? colorIndex,
+    bool? background,
+    int? backgroundColorIndex,
+  }) =>
       SubtitleStyle(
         fontSize: fontSize ?? this.fontSize,
         colorIndex: colorIndex ?? this.colorIndex,
         background: background ?? this.background,
+        backgroundColorIndex: backgroundColorIndex ?? this.backgroundColorIndex,
       );
 }
 
@@ -50,6 +72,7 @@ class SubtitleStyleNotifier extends StateNotifier<SubtitleStyle> {
       fontSize: prefs.subtitleFontSizeCached,
       colorIndex: prefs.subtitleColorIndexCached,
       background: prefs.subtitleBackgroundCached,
+      backgroundColorIndex: prefs.subtitleBgColorIndexCached,
     );
   }
 
@@ -70,5 +93,10 @@ class SubtitleStyleNotifier extends StateNotifier<SubtitleStyle> {
   void setBackground(bool enabled) {
     state = state.copyWith(background: enabled);
     PlayerPreferencesService.instance.saveSubtitleBackground(enabled);
+  }
+
+  void setBackgroundColorIndex(int index) {
+    state = state.copyWith(backgroundColorIndex: index);
+    PlayerPreferencesService.instance.saveSubtitleBgColorIndex(index);
   }
 }

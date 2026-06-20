@@ -13,6 +13,7 @@ class MediaSessionService {
   static void setActionHandler({
     required void Function(String action) onAction,
     required void Function(Duration position) onSeek,
+    void Function(bool isPip)? onPipModeChanged,
   }) {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -20,6 +21,8 @@ class MediaSessionService {
           onAction(call.arguments as String);
         case 'onMediaSeek':
           onSeek(Duration(milliseconds: call.arguments as int));
+        case 'onPipModeChanged':
+          onPipModeChanged?.call(call.arguments as bool);
       }
     });
   }

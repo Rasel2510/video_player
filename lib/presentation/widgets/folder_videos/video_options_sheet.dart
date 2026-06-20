@@ -38,10 +38,11 @@ class VideoOptionsSheet extends StatelessWidget {
         color: context.colors.panel,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           // ── Drag handle ──────────────────────────────────────────────────
           Center(
             child: Container(
@@ -116,6 +117,7 @@ class VideoOptionsSheet extends StatelessWidget {
             ),
           ),
         ],
+        ),
       ),
     );
   }

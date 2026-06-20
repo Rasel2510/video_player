@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_video_player/core/theme/app_theme.dart';
 import 'package:flutter_video_player/core/utils/duration_formatter.dart';
 import 'package:flutter_video_player/models/video_file.dart';
-import '../thumbnail_widget.dart';
+import '../thumbnail_widget/thumbnail_widget.dart';
 import 'format_badge.dart';
 import 'new_video_badge.dart';
 import 'sort_option.dart';
@@ -167,3 +167,4 @@ class VideoCard extends StatelessWidget {
     );
   }
 }
+
