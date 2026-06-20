@@ -2,7 +2,7 @@
 
 A feature-rich, performance-optimised local video player for Android, built with Flutter.
 
-## Features
+## Features 
 
 - 📂 **Library Scan & Modes** — Auto-discovers video files across internal & SD-card storage with hybrid, fast native MediaStore queries, or recursive file scanning. Updates live via native `ContentObserver`.
 - 🔍 **Search & Sort** — Filter folders/videos by name, date, size, or duration. Search videos globally across all directories.
@@ -157,10 +157,10 @@ flutter build apk --release
 - A physical or emulated Android device for full file-system access
 
 ---
+ 
+## Dependencies  
 
-## Dependencies
-
-| Package | Purpose |
+| Package | Purpose | 
 |---|---|
 | `media_kit` | Video playback engine |
 | `flutter_riverpod` | State management |

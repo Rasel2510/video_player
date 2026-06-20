@@ -23,3 +23,4 @@ Future<void> main() async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   runApp(const ProviderScope(child: VideoPlayerApp()));
 }
+ 
