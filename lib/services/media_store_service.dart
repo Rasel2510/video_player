@@ -52,4 +52,21 @@ class MediaStoreService {
       await _channel.invokeMethod('stopWatching');
     } catch (_) {}
   }
+
+  /// Returns the system's pre-generated thumbnail (JPEG bytes) for an indexed
+  /// video — near-instant compared with decoding a frame. Null when the video
+  /// isn't in MediaStore (e.g. WhatsApp/.nomedia) or on a platform without the
+  /// native bridge; callers fall back to frame extraction.
+  static Future<Uint8List?> thumbnailBytes(
+      String path, int width, int height) async {
+    try {
+      return await _channel.invokeMethod<Uint8List>('getThumbnail', {
+        'path': path,
+        'width': width,
+        'height': height,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
 }

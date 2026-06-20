@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import '../core/utils/cache_key.dart';
+import 'media_store_service.dart';
 
 /// Generates and caches video thumbnails to disk.
 ///
@@ -79,7 +80,12 @@ class ThumbnailService {
         return cacheFile;
       }
 
-      final bytes = await VideoThumbnail.thumbnailData(
+      // Fast path: reuse the system's pre-generated thumbnail for MediaStore-
+      // indexed videos (Camera/Downloads/etc.) instead of decoding a frame.
+      // Returns null for .nomedia videos (WhatsApp) → falls through to extract.
+      var bytes = await MediaStoreService.thumbnailBytes(videoPath, 240, 240);
+
+      bytes ??= await VideoThumbnail.thumbnailData(
         video: videoPath,
         imageFormat: ImageFormat.JPEG,
         // FIX #THUMB-FAST: 1 s instead of 3 s — most videos have a valid

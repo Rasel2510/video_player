@@ -1,13 +1,18 @@
 package com.example.flutter_video_player
 
+import android.content.ContentUris
 import android.content.Context
 import android.database.ContentObserver
+import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.util.Size
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 
 /// Bridges Android's MediaStore video index to Flutter.
 ///
@@ -36,6 +41,16 @@ class MediaStoreBridge(
                     Thread {
                         val data = try { queryVideos() } catch (e: Exception) { emptyList() }
                         mainHandler.post { result.success(data) }
+                    }.start()
+                }
+                "getThumbnail" -> {
+                    val path = call.argument<String>("path")
+                    val width = call.argument<Int>("width") ?: 240
+                    val height = call.argument<Int>("height") ?: 240
+                    Thread {
+                        val bytes =
+                            try { loadThumbnail(path, width, height) } catch (e: Exception) { null }
+                        mainHandler.post { result.success(bytes) }
                     }.start()
                 }
                 "startWatching" -> { startWatching(); result.success(null) }
@@ -86,6 +101,51 @@ class MediaStoreBridge(
             }
         }
         return out
+    }
+
+    // Returns the system's pre-generated thumbnail for an indexed video as JPEG
+    // bytes — near-instant vs. decoding a frame ourselves. Null when the video
+    // isn't in MediaStore (e.g. .nomedia folders like WhatsApp); the Dart side
+    // then falls back to frame extraction.
+    private fun loadThumbnail(path: String?, width: Int, height: Int): ByteArray? {
+        if (path.isNullOrEmpty()) return null
+        val id = idForPath(path) ?: return null
+        val uri = ContentUris.withAppendedId(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+
+        val bitmap: Bitmap? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                context.contentResolver.loadThumbnail(uri, Size(width, height), null)
+            } catch (e: Exception) {
+                null
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            MediaStore.Video.Thumbnails.getThumbnail(
+                context.contentResolver,
+                id,
+                MediaStore.Video.Thumbnails.MINI_KIND,
+                null,
+            )
+        }
+        if (bitmap == null) return null
+
+        val out = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 75, out)
+        bitmap.recycle()
+        return out.toByteArray()
+    }
+
+    private fun idForPath(path: String): Long? {
+        val cursor = context.contentResolver.query(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Video.Media._ID),
+            "${MediaStore.Video.Media.DATA} = ?",
+            arrayOf(path),
+            null,
+        ) ?: return null
+        cursor.use { c -> if (c.moveToFirst()) return c.getLong(0) }
+        return null
     }
 
     private fun startWatching() {
