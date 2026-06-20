@@ -4,12 +4,16 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.PictureInPictureParams
+import android.util.Rational
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import android.support.v4.media.MediaMetadataCompat
 import androidx.core.content.ContextCompat
 import android.support.v4.media.session.MediaSessionCompat
@@ -28,6 +32,10 @@ class MainActivity : FlutterActivity() {
     private var mediaSession: MediaSessionCompat? = null
     private var methodChannel: MethodChannel? = null
     private var mediaStoreBridge: MediaStoreBridge? = null
+
+    // "Open with" / VIEW-intent delivery.
+    private var openFileChannel: MethodChannel? = null
+    private var pendingOpenFile: String? = null
 
     private var isPlaying = false
     private var videoTitle = "Video Player"
@@ -48,6 +56,22 @@ class MainActivity : FlutterActivity() {
         // Fast MediaStore video index + live ContentObserver notifications.
         mediaStoreBridge =
             MediaStoreBridge(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
+
+        // "Open with" channel — hands externally-opened videos to Flutter.
+        openFileChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.example.flutter_video_player/open_file",
+        )
+        openFileChannel!!.setMethodCallHandler { call, result ->
+            if (call.method == "getOpenedFile") {
+                result.success(pendingOpenFile)
+                pendingOpenFile = null
+            } else {
+                result.notImplemented()
+            }
+        }
+        // Capture the intent that launched us (cold start via "Open with").
+        handleViewIntent(intent)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
 
@@ -110,6 +134,14 @@ class MainActivity : FlutterActivity() {
                     // activity, so the Flutter engine + playback stay alive
                     // when the user backs out during audio mode.
                     moveTaskToBack(true)
+                    result.success(null)
+                }
+
+                "enterPip" -> {
+                    enterPip(
+                        call.argument<Int>("width") ?: 16,
+                        call.argument<Int>("height") ?: 9,
+                    )
                     result.success(null)
                 }
 
@@ -303,6 +335,81 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // ── "Open with" / VIEW intents ────────────────────────────────────────────
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleViewIntent(intent)
+    }
+
+    private fun handleViewIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val uri = intent.data ?: return
+        val path = resolveToPath(uri) ?: return
+        // If Flutter is already attached, deliver immediately; otherwise stash it
+        // for the Dart side to pull on startup via getOpenedFile.
+        val channel = openFileChannel
+        if (channel != null) {
+            channel.invokeMethod("onOpenFile", path)
+        } else {
+            pendingOpenFile = path
+        }
+        // Always keep it pending too, so a cold-start getOpenedFile still finds it.
+        pendingOpenFile = path
+    }
+
+    /// Turns a VIEW intent's data URI into something media_kit can play: a real
+    /// file path when resolvable, otherwise the raw URI string.
+    private fun resolveToPath(uri: Uri): String? {
+        return when (uri.scheme) {
+            "file" -> uri.path
+            "content" -> queryDataColumn(uri) ?: uri.toString()
+            else -> uri.toString()
+        }
+    }
+
+    private fun queryDataColumn(uri: Uri): String? {
+        return try {
+            contentResolver.query(
+                uri, arrayOf(MediaStore.Video.Media.DATA), null, null, null,
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    val idx = c.getColumnIndex(MediaStore.Video.Media.DATA)
+                    if (idx >= 0) c.getString(idx) else null
+                } else {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    // ── Picture-in-Picture ────────────────────────────────────────────────────
+
+    private fun enterPip(width: Int, height: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        try {
+            // Android only accepts aspect ratios in roughly [0.418, 2.39];
+            // clamp out-of-range videos to 16:9 to avoid an exception.
+            val w = width.coerceAtLeast(1)
+            val h = height.coerceAtLeast(1)
+            val ratio = w.toFloat() / h.toFloat()
+            val rational = if (ratio < 0.42f || ratio > 2.39f) {
+                Rational(16, 9)
+            } else {
+                Rational(w, h)
+            }
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(rational)
+                .build()
+            enterPictureInPictureMode(params)
+        } catch (e: Exception) {
+            // Device may not support PiP, or it's disabled in system settings.
+        }
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     override fun onDestroy() {
@@ -312,6 +419,8 @@ class MainActivity : FlutterActivity() {
         methodChannel = null
         mediaStoreBridge?.dispose()
         mediaStoreBridge = null
+        openFileChannel?.setMethodCallHandler(null)
+        openFileChannel = null
         if (activeInstance === this) activeInstance = null
         super.onDestroy()
     }

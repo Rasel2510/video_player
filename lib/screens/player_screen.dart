@@ -10,6 +10,8 @@ import '../presentation/widgets/player/speed_sheet.dart';
 import '../presentation/widgets/player/volume_sheet.dart';
 import '../presentation/widgets/player/audio_track_sheet.dart';
 import '../presentation/widgets/player/subtitle_sheet.dart';
+import '../presentation/widgets/player/sleep_timer_sheet.dart';
+import '../services/media_session_service.dart';
 import '../presentation/widgets/player/lock_overlay.dart';
 import '../presentation/widgets/player/auto_play_countdown.dart';
 import '../presentation/widgets/player/error_state.dart';
@@ -153,7 +155,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         onSelect: (t) => _notifier.setSubtitleTrack(t),
         onToggle: () => _notifier.toggleSubtitles(),
         onLoadExternal: _pickExternalSubtitle,
+        delay: s.subtitleDelay,
+        onAdjustDelay: (d) => _notifier.adjustSubtitleDelay(d),
+        onResetDelay: () => _notifier.setSubtitleDelay(0),
       ),
+    );
+  }
+
+  void _showSleepTimerSheet(BuildContext ctx) {
+    showModalBottomSheet(
+      context: ctx,
+      useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const SleepTimerSheet(),
+    );
+  }
+
+  Future<void> _enterPip() async {
+    // Use the real video aspect ratio so the floating window isn't letterboxed.
+    final st = _notifier.player?.state;
+    await MediaSessionService.enterPip(
+      width: (st?.width ?? 16),
+      height: (st?.height ?? 9),
     );
   }
 
@@ -433,6 +457,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         notifier.enableAudioMode();
                         Navigator.pop(context);
                       },
+                      onSleepTimer: () => _showSleepTimerSheet(context),
+                      onPip: () => _enterPip(),
+                      onCycleAbRepeat: notifier.cycleAbRepeat,
                     ),
                   );
                   return AnimatedOpacity(

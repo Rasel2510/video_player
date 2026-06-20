@@ -12,13 +12,39 @@ import '../presentation/providers/player_provider.dart';
 import '../presentation/providers/scan_mode_provider.dart';
 import '../presentation/providers/folders_provider.dart';
 import '../services/media_session_service.dart';
+import '../services/open_file_service.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
 import 'library_screen.dart';
 import 'player_screen.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Videos opened from outside the app ("Open with" / VIEW intents).
+    OpenFileService.setHandler(_openExternal);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final path = await OpenFileService.getInitialFile();
+      if (path != null) _openExternal(path);
+    });
+  }
+
+  void _openExternal(String path) {
+    if (!mounted) return;
+    final name = path.split('/').last.split('?').first;
+    _openVideo(
+      context,
+      VideoFile(path: path, name: name, size: 0, modified: DateTime.now()),
+    );
+  }
 
   Future<void> _pickAndOpenVideo(BuildContext context) async {
     final result = await FilePicker.platform.pickFiles(type: FileType.video);
@@ -75,7 +101,7 @@ class HomeScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final themeMode = ref.watch(themeProvider);
     final themeIcon = themeMode == ThemeMode.light 
         ? Icons.light_mode_rounded 

@@ -42,8 +42,22 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
   bool _isSeekSwipe = false;
   double _seekStartProgress = 0;
 
+  // ── Hold-to-fast-forward (press and hold → 2×) ─────────────────────────────
+  Timer? _holdFFTimer;
+  bool _holdFFActive = false;
+
+  void _cancelHoldFF() {
+    _holdFFTimer?.cancel();
+    _holdFFTimer = null;
+    if (_holdFFActive) {
+      _holdFFActive = false;
+      ref.read(playerProvider.notifier).endHoldFastForward();
+    }
+  }
+
   @override
   void dispose() {
+    _holdFFTimer?.cancel();
     _seekFlashCtrl.dispose();
     super.dispose();
   }
@@ -66,10 +80,12 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final (:isLocked, :controlsVisible) = ref.watch(playerProvider.select((s) => (
-      isLocked: s.isLocked,
-      controlsVisible: s.controlsVisible,
-    )));
+    final (:isLocked, :controlsVisible, :holdFastForward) =
+        ref.watch(playerProvider.select((s) => (
+              isLocked: s.isLocked,
+              controlsVisible: s.controlsVisible,
+              holdFastForward: s.holdFastForward,
+            )));
 
     return Stack(
       children: [
@@ -103,6 +119,7 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
               _swipeActive = false;
               _postPinchCooldown = false;
               _baseZoomScale = ref.read(playerProvider).zoomScale;
+              _cancelHoldFF(); // a second finger → it's a pinch, not a hold
             } else {
               if (_postPinchCooldown) return;
               _isPinching = false;
@@ -111,6 +128,11 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
               _swipeActive = true;
               _swipeCommitted = false;
               _isSeekSwipe = false;
+              // Press-and-hold (still) for ~450 ms → temporary 2× fast-forward.
+              _holdFFTimer = Timer(const Duration(milliseconds: 450), () {
+                _holdFFActive = true;
+                ref.read(playerProvider.notifier).startHoldFastForward();
+              });
             }
           },
           onScaleUpdate: (details) {
@@ -122,10 +144,13 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
                 ref.read(playerProvider.notifier).setZoomScale(_baseZoomScale * details.scale);
               }
             } else if (_swipeActive && !_postPinchCooldown) {
+              // While fast-forwarding, ignore movement until the finger lifts.
+              if (_holdFFActive) return;
               if (!_swipeCommitted) {
                 final dx = details.localFocalPoint.dx - _dragStartDx;
                 final dy = details.localFocalPoint.dy - _dragStartDy;
                 if (dx.abs() > 15 || dy.abs() > 15) {
+                  _holdFFTimer?.cancel(); // moved → it's a swipe, not a hold
                   _swipeCommitted = true;
                   if (dx.abs() > dy.abs()) {
                     _isSeekSwipe = true;
@@ -155,6 +180,8 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
           },
           onScaleEnd: (_) {
             if (isLocked) return;
+            // Release the hold-to-fast-forward (restores prior speed).
+            _cancelHoldFF();
             if (_isPinching) {
               _isPinching = false;
               _postPinchCooldown = true;
@@ -194,6 +221,47 @@ class _PlayerGestureLayerState extends ConsumerState<PlayerGestureLayer>
             bottom: 0,
             width: size.width / 2,
             child: SeekFlash(animation: _seekFlashAnim, isForward: true),
+          ),
+
+        // Hold-to-fast-forward badge.
+        if (holdFastForward)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: const Color(0xB8000000),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0x1AFFFFFF)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.fast_forward_rounded,
+                            color: Colors.white, size: 16),
+                        SizedBox(width: 6),
+                        Text(
+                          '2×',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
       ],
     );
