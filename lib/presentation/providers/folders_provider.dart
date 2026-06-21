@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/video_file.dart';
 import '../../models/video_folder.dart';
+import '../../services/duration_cache_service.dart';
 import '../../services/folder_scanner.dart';
 import '../../services/media_store_service.dart';
 import '../../services/player_preferences_service.dart';
@@ -366,6 +367,9 @@ class FoldersNotifier extends Notifier<FoldersState> {
       }
 
       final videos = await MediaStoreService.queryVideos();
+      // MediaStore already knows each indexed video's duration — seed the cache
+      // so the folder screen never spins up a Player just to read it.
+      DurationCacheService.instance.seedDurations(videos);
       final mediaByPath = <String, VideoFile>{for (final v in videos) v.path: v};
 
       // In hybrid mode, keep the filesystem-only videos already on screen (from

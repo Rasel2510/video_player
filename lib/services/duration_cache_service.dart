@@ -53,6 +53,26 @@ class DurationCacheService {
   // ── Probe dedup ───────────────────────────────────────────────────────────
   final Map<String, Future<Duration?>> _probeInFlight = {};
 
+  // ── Seed from a known source ──────────────────────────────────────────────
+
+  /// Seeds the in-memory cache with durations already known from another source
+  /// — chiefly the MediaStore query, which returns DURATION for every indexed
+  /// video. Seeding here means those videos resolve instantly via
+  /// [loadCachedDurations] / [getFromCacheSync] and never trigger the
+  /// heavyweight [Player] probe in [_probe].
+  ///
+  /// Only fills empty or previously-failed (null) entries, so a value that was
+  /// actually probed or persisted is never overwritten. Pure in-memory, no I/O.
+  void seedDurations(Iterable<VideoFile> videos) {
+    for (final v in videos) {
+      final d = v.duration;
+      if (d == null || d <= Duration.zero) continue;
+      // _memCache[path] is null both when the key is absent and when a prior
+      // probe failed — fill both, but leave a real cached duration intact.
+      if (_memCache[v.path] == null) _memCache[v.path] = d;
+    }
+  }
+
   // ── Fast synchronous read ─────────────────────────────────────────────────
 
   /// Returns cached duration synchronously if prefs are already loaded.
@@ -163,20 +183,25 @@ class DurationCacheService {
   }
 
   /// Moves a cached duration from [oldPath] to [newPath] — used when a video
-  /// file is renamed on disk, so it doesn't need to be re-probed.
+  /// file is renamed on disk, so it doesn't need to be re-probed. Never throws,
+  /// and only drops the old key once the new one is written — so a failed write
+  /// leaves the cache intact instead of losing the duration entirely.
   Future<void> rename(String oldPath, String newPath) async {
-    final p = await _p;
-    final ms = p.getInt(_key(oldPath));
-    if (ms != null) {
-      await p.setInt(_key(newPath), ms);
-      _memCache[newPath] = Duration(milliseconds: ms);
-    } else {
-      final cached = _memCache[oldPath];
-      if (cached != null) _memCache[newPath] = cached;
-    }
-    _memCache.remove(oldPath);
-    _probeInFlight.remove(oldPath);
-    await p.remove(_key(oldPath));
+    try {
+      final p = await _p;
+      final ms = p.getInt(_key(oldPath));
+      if (ms != null) {
+        await p.setInt(_key(newPath), ms); // write new first
+        _memCache[newPath] = Duration(milliseconds: ms);
+        _memCache.remove(oldPath);
+        _probeInFlight.remove(oldPath);
+        await p.remove(_key(oldPath)); // only drop old after new succeeded
+      } else {
+        final cached = _memCache.remove(oldPath);
+        if (cached != null) _memCache[newPath] = cached;
+        _probeInFlight.remove(oldPath);
+      }
+    } catch (_) {}
   }
 
   Future<List<VideoFile>> enrichAll(List<VideoFile> files) async {

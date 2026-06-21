@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,14 +15,16 @@ import '../services/player_preferences_service.dart';
 import '../services/position_service.dart';
 import '../services/recent_files_service.dart';
 import '../services/thumbnail_service.dart';
-import '../core/utils/duration_formatter.dart';
 import '../presentation/widgets/folder_videos/no_results.dart';
 import '../presentation/widgets/folder_videos/resume_fab.dart';
 import '../presentation/widgets/folder_videos/sort_option.dart';
 import '../presentation/widgets/folder_videos/sort_sheet.dart';
 import '../presentation/widgets/folder_videos/video_card.dart';
 import '../presentation/widgets/folder_videos/video_options_sheet.dart';
-import '../presentation/widgets/common/sheet_surface.dart';
+import '../presentation/widgets/folder_videos/video_details_sheet.dart';
+import '../presentation/widgets/folder_videos/folder_videos_app_bar.dart';
+import '../presentation/widgets/folder_videos/folder_search_bar.dart';
+import '../presentation/widgets/folder_videos/selection_delete_bar.dart';
 import 'player_screen.dart';
 import '../presentation/widgets/smooth_page_route.dart';
 
@@ -57,6 +60,8 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchQuery = '';
   bool _searchOpen = false;
+  // Debounce so a full re-filter + list rebuild doesn't run on every keystroke.
+  Timer? _searchDebounce;
 
   // Selection
   bool _selectionMode = false;
@@ -167,113 +172,35 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   }
 
   void _showVideoDetails(VideoFile vf) {
-    final dur = _durations[vf.path];
-    final durStr = dur != null ? DurationFormatter.format(dur) : 'Unknown';
-    final sizeStr = vf.sizeLabel;
-    final extension = vf.extensionLabel;
-    final dateStr = '${vf.modified.year}-${vf.modified.month.toString().padLeft(2, '0')}-${vf.modified.day.toString().padLeft(2, '0')} '
-        '${vf.modified.hour.toString().padLeft(2, '0')}:${vf.modified.minute.toString().padLeft(2, '0')}';
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       useSafeArea: true,
       isScrollControlled: true,
-      builder: (ctx) {
-        return SheetSurface(
-          child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + MediaQuery.of(ctx).padding.bottom),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.info_outline_rounded, color: ctx.colors.accent, size: 22),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Video Details',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: ctx.colors.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _buildDetailItem(ctx, 'Name', vf.name),
-              _buildDetailItem(ctx, 'Format', extension),
-              _buildDetailItem(ctx, 'Size', sizeStr),
-              _buildDetailItem(ctx, 'Duration', durStr),
-              _buildDetailItem(ctx, 'Date Modified', dateStr),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: _buildDetailItem(ctx, 'Path', vf.path)),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: Icon(Icons.copy_rounded, color: ctx.colors.textSecondary, size: 18),
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: vf.path));
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(
-                          content: Text('Path copied to clipboard'),
-                          duration: Duration(seconds: 1),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDetailItem(BuildContext ctx, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: ctx.colors.textMuted,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: ctx.colors.textPrimary,
-            ),
-          ),
-        ],
-      ),
+      builder: (_) => VideoDetailsSheet(vf: vf, duration: _durations[vf.path]),
     );
   }
 
   @override
   void initState() {
     super.initState();
-    _searchCtrl.addListener(() =>
-        setState(() => _searchQuery = _searchCtrl.text.trim().toLowerCase()));
+    _searchCtrl.addListener(() {
+      // Restart the timer and read the live text when it fires — never capture
+      // the text here, or a quick type-then-delete could apply a stale query.
+      _searchDebounce?.cancel();
+      _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+        if (!mounted) return;
+        final q = _searchCtrl.text.trim().toLowerCase();
+        if (q != _searchQuery) setState(() => _searchQuery = q);
+      });
+    });
     _loadSortPreference();
     _loadPositions();
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -610,10 +537,27 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
     await _renameVideo(vf, trimmed, ext);
   }
 
+  // Windows reserved device names — illegal as a base file name on FAT/exFAT
+  // SD cards even though Android's own storage tolerates them.
+  static const _reservedNames = {
+    'CON', 'PRN', 'AUX', 'NUL',
+    'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+    'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+  };
+
   Future<void> _renameVideo(VideoFile vf, String newBaseName, String ext) async {
-    // Strip characters that are illegal in filenames on Android/Windows.
-    final sanitized = newBaseName.replaceAll(RegExp(r'[/\\:*?"<>|]'), '_');
+    // Strip illegal characters, then trailing dots/spaces (which produce
+    // hidden or invalid files on some filesystems).
+    var sanitized = newBaseName
+        .replaceAll(RegExp(r'[/\\:*?"<>|]'), '_')
+        .replaceAll(RegExp(r'[. ]+$'), '')
+        .trim();
     if (sanitized.isEmpty) return;
+    // A leading dot makes a hidden file; a reserved device name is rejected on
+    // FAT/exFAT SD cards. Prefix with '_' to keep the user's intent readable.
+    if (sanitized.startsWith('.') || _reservedNames.contains(sanitized.toUpperCase())) {
+      sanitized = '_$sanitized';
+    }
 
     final newName = '$sanitized$ext';
     final newPath = p.join(p.dirname(vf.path), newName);
@@ -653,13 +597,23 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
       duration: vf.duration,
     );
 
+    // _sorted() maps over the original widget.folder.videos snapshot, so the
+    // override must be keyed by that original path. If this video was already
+    // renamed once this session, vf.path is the *previous* new path — find the
+    // original key it maps from so a second rename updates the same entry
+    // instead of writing a key that's never read back.
+    var originKey = vf.path;
+    _renamedOverrides.forEach((orig, renamedVf) {
+      if (renamedVf.path == vf.path) originKey = orig;
+    });
+
     if (!mounted) return;
     setState(() {
       final dur = _durations.remove(vf.path);
       final pos = _positions.remove(vf.path);
       if (dur != null) _durations[newPath] = dur;
       if (pos != null) _positions[newPath] = pos;
-      _renamedOverrides[vf.path] = renamed;
+      _renamedOverrides[originKey] = renamed;
       _sortedCache = null; // force re-sort
     });
 
@@ -692,6 +646,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   // ── Search toggle ──────────────────────────────────────────────────────────
 
   void _toggleSearch() {
+    _searchDebounce?.cancel();
     setState(() {
       _searchOpen = !_searchOpen;
       if (!_searchOpen) {
@@ -714,76 +669,21 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
 
     return Scaffold(
       backgroundColor: context.colors.bg,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: Icon(_selectionMode ? Icons.close_rounded : Icons.arrow_back_rounded),
-          onPressed: _selectionMode
-              ? _exitSelectionMode
-              : () => Navigator.pop(context),
-        ),
-        title: _selectionMode
-            ? Text(
-                '${_selectedPaths.length} selected',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: context.colors.textPrimary,
-                ),
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.folder.name,
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: context.colors.textPrimary,
-                        letterSpacing: -0.2),
-                  ),
-                  Text(
-                    '${display.length}${_searchQuery.isNotEmpty ? ' of ${sorted.length}' : ''} '
-                    'video${sorted.length == 1 ? '' : 's'}'
-                    ' · ${widget.folder.totalSizeLabel}',
-                    style: context.textStyles.caption,
-                  ),
-                ],
-              ),
-        actions: _selectionMode
-            ? [
-                IconButton(
-                  icon: Icon(
-                    _selectedPaths.length == display.length
-                        ? Icons.select_all_rounded
-                        : Icons.checklist_rounded,
-                  ),
-                  tooltip: _selectedPaths.length == display.length ? 'Deselect all' : 'Select all',
-                  onPressed: () => _selectAll(display),
-                ),
-              ]
-            : [
-                IconButton(
-                  icon: Icon(
-                    _searchOpen ? Icons.search_off_rounded : Icons.search_rounded,
-                    size: 20,
-                    color: _searchOpen
-                        ? context.colors.accent
-                        : context.colors.textSecondary,
-                  ),
-                  tooltip: _searchOpen ? 'Close search' : 'Search',
-                  onPressed: _toggleSearch,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.sort_rounded),
-                  tooltip: 'Sort',
-                  onPressed: _showSortSheet,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.checklist_rounded),
-                  tooltip: 'Select multiple',
-                  onPressed: () => _enterSelectionMode(null),
-                ),
-              ],
+      appBar: FolderVideosAppBar(
+        folderName: widget.folder.name,
+        displayCount: display.length,
+        totalCount: sorted.length,
+        isFiltered: _searchQuery.isNotEmpty,
+        totalSizeLabel: widget.folder.totalSizeLabel,
+        selectionMode: _selectionMode,
+        selectedCount: _selectedPaths.length,
+        searchOpen: _searchOpen,
+        onBack: () => Navigator.pop(context),
+        onExitSelection: _exitSelectionMode,
+        onSelectAll: () => _selectAll(display),
+        onToggleSearch: _toggleSearch,
+        onShowSort: _showSortSheet,
+        onEnterSelection: () => _enterSelectionMode(null),
       ),
       floatingActionButton: (_selectionMode || last == null)
           ? null
@@ -792,69 +692,16 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
               onTap: () => _openVideo(last, sorted, forceResume: true),
             ),
       bottomNavigationBar: _selectionMode
-          ? Container(
-              decoration: BoxDecoration(
-                color: context.colors.surface,
-                border: Border(
-                  top: BorderSide(color: context.colors.divider),
-                ),
-              ),
-              child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: FilledButton.icon(
-                    onPressed: _selectedPaths.isEmpty
-                        ? null
-                        : () => _confirmDeleteSelected(display),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: context.colors.errorRed,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: context.colors.divider,
-                      disabledForegroundColor: context.colors.textMuted,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: const StadiumBorder(),
-                    ),
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    label: Text(
-                      'Delete Selected (${_selectedPaths.length})',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                    ),
-                  ),
-                ),
-              ),
+          ? SelectionDeleteBar(
+              selectedCount: _selectedPaths.length,
+              onDelete: _selectedPaths.isEmpty
+                  ? null
+                  : () => _confirmDeleteSelected(display),
             )
           : null,
       body: Column(
         children: [
-          // Search bar (animated)
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            child: _searchOpen
-                ? Padding(
-                    key: const ValueKey('search'),
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                    child: TextField(
-                      controller: _searchCtrl,
-                      autofocus: true,
-                      textInputAction: TextInputAction.search,
-                      style: TextStyle(
-                          color: context.colors.textPrimary, fontSize: 14),
-                      decoration: InputDecoration(
-                        hintText: 'Search videos…',
-                        prefixIcon: Icon(Icons.search_rounded,
-                            size: 18, color: context.colors.textMuted),
-                        suffixIcon: _searchCtrl.text.isNotEmpty
-                            ? IconButton(
-                                icon: Icon(Icons.clear_rounded,
-                                    size: 16, color: context.colors.textMuted),
-                                onPressed: _searchCtrl.clear,
-                              )
-                            : null,
-                      ),
-                    ),
-                  )
-                : const SizedBox(key: ValueKey('no-search'), height: 0),
-          ),
+          FolderSearchBar(open: _searchOpen, controller: _searchCtrl),
 
           // Video list
           Expanded(

@@ -31,7 +31,7 @@ class LibraryHeader extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 12, 6),
+          padding: const EdgeInsets.fromLTRB(20, 6, 8, 2),
           child: Row(
             children: [
               if (filteredCount != null)
@@ -73,6 +73,12 @@ class LibraryHeader extends StatelessWidget {
               ),
               TextButton(
                 onPressed: onRescan,
+                style: TextButton.styleFrom(
+                  minimumSize: Size.zero,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
                 child: Text(
                   'Rescan',
                   style: TextStyle(

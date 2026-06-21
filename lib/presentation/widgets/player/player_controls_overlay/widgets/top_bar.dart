@@ -58,7 +58,7 @@ class _TopBar extends ConsumerWidget {
         speed == speed.roundToDouble() ? '${speed.toInt()}×' : '$speed×';
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
+      padding: const EdgeInsets.fromLTRB(10, 8, 18, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,7 +135,7 @@ class _TopBar extends ConsumerWidget {
                 active: sleepActive,
               ),
               const SizedBox(width: 2),
-              // Subtitle
+              // Subtitle — white when off, orange when on.
               _GlassIconButton(
                 icon: subtitlesEnabled && hasSubtitles
                     ? Icons.subtitles_rounded
@@ -143,7 +143,6 @@ class _TopBar extends ConsumerWidget {
                 size: 19,
                 onTap: onShowSubtitle,
                 active: subtitlesEnabled && hasSubtitles,
-                dim: !hasSubtitles,
               ),
               const SizedBox(width: 6),
               // A-B repeat — tap to set A, again for B (loops), again to clear.

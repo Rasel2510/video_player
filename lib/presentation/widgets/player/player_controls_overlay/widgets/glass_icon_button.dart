@@ -5,7 +5,6 @@ class _GlassIconButton extends StatelessWidget {
   final double size;
   final VoidCallback onTap;
   final bool active;
-  final bool dim;
   final bool boosted;
   final LoopMode? loopMode;
 
@@ -14,7 +13,6 @@ class _GlassIconButton extends StatelessWidget {
     required this.size,
     required this.onTap,
     this.active = false,
-    this.dim = false,
     this.boosted = false,
     this.loopMode,
   });
@@ -22,9 +20,6 @@ class _GlassIconButton extends StatelessWidget {
   // Inlined as a method so the expression is evaluated once per build,
   // not allocated as a separate stack frame.
   Color _getIconColor(BuildContext context) {
-    if (dim) {
-      return _kWhite30;
-    }
     if (boosted) {
       return _kOrange;
     }
