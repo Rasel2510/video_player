@@ -1037,7 +1037,24 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _saveTimer?.cancel();
     await _savePosition();
     await MediaSessionService.release();
-    _disposeInternal();
+
+    // Cancel timers + stream subscriptions now (cheap), but DEFER the heavy
+    // native player teardown (libmpv + MediaCodec) so it doesn't compete with
+    // the pop transition on low-end devices — that contention was the exit jank.
+    // The old player is captured and disposed a few frames later, off the
+    // critical path. A re-open before then makes a fresh player via init(); this
+    // closure still disposes the captured old one, so nothing leaks.
+    _autoPlayTimer?.cancel();
+    _lockIconTimer?.cancel();
+    _sleepTimer?.cancel();
+    _disposeStreams();
+    final oldPlayer = _player;
+    _player = null;
+    _videoController = null;
+    Future.delayed(const Duration(milliseconds: 350), () async {
+      try { await oldPlayer?.dispose(); } catch (_) {}
+    });
+
     state = const PlayerState();
 
     try { await _brightness.resetScreenBrightness(); } catch (_) {}
