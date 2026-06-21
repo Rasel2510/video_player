@@ -232,11 +232,6 @@ class PlayerNotifier extends Notifier<PlayerState> {
       state = state.copyWith(isInitialized: true);
       _startHideTimer();
       _syncMediaSessionMetadata();
-      if (resumeFrom != null && resumeFrom > Duration.zero) {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          _player?.seek(resumeFrom);
-        });
-      }
     });
 
     // Lock-screen / notification controls. setActionHandler overwrites any
@@ -249,9 +244,16 @@ class PlayerNotifier extends Notifier<PlayerState> {
       },
     );
 
-    // Start decoding immediately — overlaps the prefs reads above and the
-    // settings applied below.
-    final openFuture = _player!.open(Media(filePath));
+    // Start decoding immediately — overlaps the prefs reads below. Opened
+    // PAUSED (play: false): the saved rate/volume are applied while paused and
+    // playback is started only afterwards. Setting the rate after audio has
+    // already begun makes libmpv reload its audio filter chain, which briefly
+    // dropped the sound at the very start of every video. `start:` makes the
+    // demuxer begin AT the resume point instead of playing from 0 then seeking.
+    final startAt =
+        (resumeFrom != null && resumeFrom > Duration.zero) ? resumeFrom : null;
+    final openFuture =
+        _player!.open(Media(filePath, start: startAt), play: false);
 
     final results = await prefsFuture;
     final fitModeIdx    = results[0] as int;
@@ -294,7 +296,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
       }
     });
 
-    // Apply player + screen settings while the file is already opening.
+    // Apply player + screen settings while the file is still opening (paused).
     await _player!.setVolume(100);
     await _player!.setRate(savedSpeed);
     if (savedBri != null) {
@@ -302,6 +304,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
     }
 
     await openFuture;
+    // Rate/volume are now in place, so begin playback cleanly — no mid-stream
+    // audio-filter reload, no play-from-zero-then-jump on resume.
+    await _player?.play();
     WakelockPlus.enable(); // fire-and-forget — never gated the first frame
   }
 

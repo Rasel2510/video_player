@@ -139,6 +139,21 @@ class DurationCacheService {
       final player = Player();
       Duration? result;
 
+      // Make the probe demux-only: no audio output device, no audio/video
+      // decode. The duration comes from the container header, which mpv reads
+      // regardless of track selection — so we don't need to play anything.
+      // Without this, each probe grabbed a real audio output + decoder, which
+      // on low-end devices contended with actual playback (audio glitch at the
+      // start of a video) and produced an audible blip when probes ran. These
+      // properties are set before open() and setProperty waits for init, so
+      // they apply to the file about to load.
+      try {
+        final platform = player.platform as dynamic;
+        await platform?.setProperty('ao', 'null'); // route audio to null sink
+        await platform?.setProperty('vid', 'no');  // skip video decode
+        await platform?.setProperty('aid', 'no');  // skip audio decode
+      } catch (_) {}
+
       final completer = Completer<Duration?>();
       final sub = player.stream.duration.listen((d) {
         if (d > Duration.zero && !completer.isCompleted) completer.complete(d);
