@@ -7,7 +7,6 @@ class _TopBar extends ConsumerWidget {
   final VoidCallback onShowVolume;
   final VoidCallback onShowAudio;
   final VoidCallback onShowSubtitle;
-  final VoidCallback onToggleLock;
   final VoidCallback onToggleRepeat;
   final VoidCallback onAudioMode;
   final VoidCallback onSleepTimer;
@@ -20,7 +19,6 @@ class _TopBar extends ConsumerWidget {
     required this.onShowVolume,
     required this.onShowAudio,
     required this.onShowSubtitle,
-    required this.onToggleLock,
     required this.onToggleRepeat,
     required this.onAudioMode,
     required this.onSleepTimer,
@@ -97,13 +95,6 @@ class _TopBar extends ConsumerWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                // Lock gesture
-              _GlassIconButton(
-                icon: Icons.lock_open_rounded,
-                size: 19,
-                onTap: onToggleLock,
-              ),
-              const SizedBox(width: 2),
               // Playback speed
               _MiniChip(label: speedLabel, onTap: onShowSpeed),
               const SizedBox(width: 6),
