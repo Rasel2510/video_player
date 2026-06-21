@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_video_player/core/theme/app_theme.dart';
 import 'package:flutter_video_player/models/video_file.dart';
+import '../common/sheet_surface.dart';
 import 'option_row.dart';
 
 class VideoOptionsSheet extends StatelessWidget {
@@ -32,30 +33,12 @@ class VideoOptionsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomPad = MediaQuery.of(context).padding.bottom;
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: context.colors.panel,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: SafeArea(
+    return SheetSurface(
+      child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          // ── Drag handle ──────────────────────────────────────────────────
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: context.colors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-
           // ── File name ────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),

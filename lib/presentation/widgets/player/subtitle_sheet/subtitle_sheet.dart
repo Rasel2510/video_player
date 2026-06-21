@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../providers/subtitle_style_provider.dart';
+import '../../common/sheet_surface.dart';
 
 part 'widgets/delay_control.dart';
 part 'widgets/appearance_control.dart';
@@ -34,34 +35,13 @@ class SubtitleSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // isScrollControlled=true is set at the call site so the sheet can grow
-    // as needed. Constrain to 75% of screen height so it never covers the video.
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.75,
-      ),
-      child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: context.colors.panel,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
+    // isScrollControlled=true is set at the call site so the sheet can grow as
+    // needed; SheetSurface bounds it and lets the body scroll in landscape.
+    return SheetSurface(
+      child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ── Drag handle ──────────────────────────────────────────────
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: context.colors.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-
             // ── Header row ───────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
@@ -148,10 +128,11 @@ class SubtitleSheet extends StatelessWidget {
                 ),
               )
             else
-              // Track list — scrollable when many tracks
-              Flexible(
-                child: ListView.builder(
+              // Track list — part of the outer scroll view, so it doesn't
+              // scroll independently.
+              ListView.builder(
                   shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
                   itemCount: tracks.length,
                   itemBuilder: (_, i) {
                     final track = tracks[i];
@@ -205,7 +186,6 @@ class SubtitleSheet extends StatelessWidget {
                     );
                   },
                 ),
-              ),
 
             // ── Load external subtitle button ────────────────────────────
             Padding(

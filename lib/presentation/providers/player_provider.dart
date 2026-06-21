@@ -824,9 +824,12 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void setSpeed(double speed) {
-    _player?.setRate(speed);
-    state = state.copyWith(playbackSpeed: speed);
-    PlayerPreferencesService.instance.saveSpeed(speed);
+    // Snap to 2 decimals so slider float artifacts (e.g. 1.0500000000000003)
+    // never reach the rate, the UI chips, the notification, or persistence.
+    final clean = (speed * 100).roundToDouble() / 100;
+    _player?.setRate(clean);
+    state = state.copyWith(playbackSpeed: clean);
+    PlayerPreferencesService.instance.saveSpeed(clean);
     showControls();
   }
 

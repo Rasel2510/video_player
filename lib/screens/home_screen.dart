@@ -66,6 +66,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     showModalBottomSheet(
       context: context,
       useSafeArea: true,
+      isScrollControlled: true,
       showDragHandle: false,
       backgroundColor: Colors.transparent,
       builder: (_) => ScanModeSheet(

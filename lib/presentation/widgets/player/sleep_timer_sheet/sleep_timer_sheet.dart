@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/duration_formatter.dart';
 import '../../../providers/player_provider.dart';
+import '../../common/sheet_surface.dart';
 
 part 'widgets/step_button.dart';
 
@@ -53,28 +54,12 @@ class _SleepTimerSheetState extends ConsumerState<SleepTimerSheet> {
       remaining = d.isNegative ? Duration.zero : d;
     }
 
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: context.colors.panel,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
+    return SheetSurface(
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: context.colors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-
           // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
@@ -202,6 +187,7 @@ class _SleepTimerSheetState extends ConsumerState<SleepTimerSheet> {
 
           SizedBox(height: 16 + MediaQuery.of(context).padding.bottom),
         ],
+        ),
       ),
     );
   }
