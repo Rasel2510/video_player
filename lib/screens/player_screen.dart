@@ -101,6 +101,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _showSpeedSheet(BuildContext ctx, double speed, int seekInterval) => showModalBottomSheet(
         context: ctx,
         useSafeArea: true,
+        // Allow the sheet to take the height SheetSurface asks for so its
+        // content scrolls instead of overflowing in landscape.
+        isScrollControlled: true,
         // Prevent Flutter from drawing its own system drag handle on top of
         // the sheet's built-in handle, which caused a double-bar appearance.
         showDragHandle: false,
@@ -120,6 +123,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       showModalBottomSheet(
         context: ctx,
         useSafeArea: true,
+        isScrollControlled: true,
         showDragHandle: false,
         backgroundColor: Colors.transparent,
         builder: (_) => VolumeSheet(
@@ -133,6 +137,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     showModalBottomSheet(
       context: ctx,
       useSafeArea: true,
+      isScrollControlled: true,
       showDragHandle: false,
       backgroundColor: Colors.transparent,
       builder: (_) => AudioTrackSheet(
@@ -169,6 +174,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     showModalBottomSheet(
       context: ctx,
       useSafeArea: true,
+      isScrollControlled: true,
       showDragHandle: false,
       backgroundColor: Colors.transparent,
       builder: (_) => const SleepTimerSheet(),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
+import '../common/sheet_surface.dart';
 
 class SpeedSheet extends StatefulWidget {
   final double currentSpeed;
@@ -31,30 +32,13 @@ class _SpeedSheetState extends State<SpeedSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: context.colors.panel,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      child: Column(
+    return SheetSurface(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Drag handle
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: context.colors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -102,8 +86,11 @@ class _SpeedSheetState extends State<SpeedSheet> {
               // 4.0 - 0.25 = 3.75, 3.75 / 0.05 = 75 divisions
               divisions: 75,
               onChanged: (val) {
-                setState(() => _speed = val);
-                widget.onSelectSpeed(val);
+                // Snap to 2 decimals so the readout reads "1.25" not
+                // "1.2500000000000002" and the presets below highlight exactly.
+                final snapped = (val * 100).roundToDouble() / 100;
+                setState(() => _speed = snapped);
+                widget.onSelectSpeed(snapped);
               },
             ),
           ),
@@ -194,6 +181,7 @@ class _SpeedSheetState extends State<SpeedSheet> {
           const SizedBox(height: 8),
           SizedBox(height: MediaQuery.of(context).padding.bottom),
         ],
+        ),
       ),
     );
   }

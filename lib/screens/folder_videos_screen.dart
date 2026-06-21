@@ -21,6 +21,7 @@ import '../presentation/widgets/folder_videos/sort_option.dart';
 import '../presentation/widgets/folder_videos/sort_sheet.dart';
 import '../presentation/widgets/folder_videos/video_card.dart';
 import '../presentation/widgets/folder_videos/video_options_sheet.dart';
+import '../presentation/widgets/common/sheet_surface.dart';
 import 'player_screen.dart';
 import '../presentation/widgets/smooth_page_route.dart';
 
@@ -177,28 +178,15 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       useSafeArea: true,
+      isScrollControlled: true,
       builder: (ctx) {
-        return Container(
-          decoration: BoxDecoration(
-            color: ctx.colors.panel,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + MediaQuery.of(ctx).padding.bottom),
+        return SheetSurface(
+          child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + MediaQuery.of(ctx).padding.bottom),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: ctx.colors.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
               Row(
                 children: [
                   Icon(Icons.info_outline_rounded, color: ctx.colors.accent, size: 22),
@@ -239,6 +227,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
                 ],
               ),
             ],
+          ),
           ),
         );
       },
@@ -468,6 +457,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
       backgroundColor: Colors.transparent,
       showDragHandle: false,
       useSafeArea: true,
+      isScrollControlled: true,
       builder: (_) => VideoOptionsSheet(
         vf: vf,
         hasResume: hasResume,
@@ -684,6 +674,7 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
       backgroundColor: Colors.transparent,
       showDragHandle: false,
       useSafeArea: true,
+      isScrollControlled: true,
       builder: (_) => SortSheet(
         current: _sortBy,
         onSelect: (opt) {

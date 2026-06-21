@@ -23,11 +23,22 @@ class SeekFlash extends StatelessWidget {
 
     // Icon and label are static — extract outside AnimatedBuilder so Flutter
     // doesn't reconstruct them on every frame (only the Container colour changes).
-    final icon = Icon(
-      isForward ? Icons.forward_10_rounded : Icons.replay_10_rounded,
-      color: Colors.white,
-      size: 40,
-    );
+    // Pick the icon that best matches the configured interval.
+    final IconData iconData;
+    if (isForward) {
+      iconData = seekInterval <= 5
+          ? Icons.forward_5_rounded
+          : seekInterval <= 10
+              ? Icons.forward_10_rounded
+              : Icons.forward_30_rounded;
+    } else {
+      iconData = seekInterval <= 5
+          ? Icons.replay_5_rounded
+          : seekInterval <= 10
+              ? Icons.replay_10_rounded
+              : Icons.replay_30_rounded;
+    }
+    final icon = Icon(iconData, color: Colors.white, size: 40);
     final label = Text(
       isForward ? '+${seekInterval}s' : '-${seekInterval}s',
       style: const TextStyle(

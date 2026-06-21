@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/volume_color.dart';
+import '../../common/sheet_surface.dart';
 
 part 'widgets/preset_button.dart';
 
@@ -55,30 +56,13 @@ class _VolumeSheetState extends State<VolumeSheet> {
     final accent     = _accent(context);
     final accentSoft = _accentSoft(context);
 
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: context.colors.panel,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      child: Column(
+    return SheetSurface(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Drag handle
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: context.colors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-
           // ── Header row ───────────────────────────────────────────────────
           Row(
             children: [
@@ -194,6 +178,7 @@ class _VolumeSheetState extends State<VolumeSheet> {
           const SizedBox(height: 8),
           SizedBox(height: MediaQuery.of(context).padding.bottom),
         ],
+        ),
       ),
     );
   }
