@@ -4,11 +4,13 @@ class _BottomBarActions extends ConsumerWidget {
   final VoidCallback onCycleFitMode;
   final VoidCallback onToggleFullscreen;
   final VoidCallback onPip;
+  final VoidCallback onToggleLock;
 
   const _BottomBarActions({
     required this.onCycleFitMode,
     required this.onToggleFullscreen,
     required this.onPip,
+    required this.onToggleLock,
   });
 
   @override
@@ -19,8 +21,14 @@ class _BottomBarActions extends ConsumerWidget {
         )));
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        // Lock — bottom-left corner.
+        _GlassIconButton(
+          icon: Icons.lock_open_rounded,
+          size: 20,
+          onTap: onToggleLock,
+        ),
+        const Spacer(),
         // Picture-in-Picture — keep the video playing in a floating window.
         _GlassIconButton(
           icon: Icons.picture_in_picture_alt_rounded,

@@ -57,8 +57,8 @@ class _SpeedSheetState extends State<SpeedSheet> {
                   const SizedBox(width: 12),
                   Text(
                     '${_speed.toStringAsFixed(2)}×',
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: context.colors.textPrimary,
                       fontWeight: FontWeight.w600,
                       fontFamily: 'monospace',
                       fontSize: 14,

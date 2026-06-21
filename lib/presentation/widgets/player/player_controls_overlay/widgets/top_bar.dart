@@ -7,7 +7,6 @@ class _TopBar extends ConsumerWidget {
   final VoidCallback onShowVolume;
   final VoidCallback onShowAudio;
   final VoidCallback onShowSubtitle;
-  final VoidCallback onToggleLock;
   final VoidCallback onToggleRepeat;
   final VoidCallback onAudioMode;
   final VoidCallback onSleepTimer;
@@ -20,7 +19,6 @@ class _TopBar extends ConsumerWidget {
     required this.onShowVolume,
     required this.onShowAudio,
     required this.onShowSubtitle,
-    required this.onToggleLock,
     required this.onToggleRepeat,
     required this.onAudioMode,
     required this.onSleepTimer,
@@ -60,7 +58,7 @@ class _TopBar extends ConsumerWidget {
         speed == speed.roundToDouble() ? '${speed.toInt()}×' : '$speed×';
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
+      padding: const EdgeInsets.fromLTRB(10, 8, 18, 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -97,13 +95,6 @@ class _TopBar extends ConsumerWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                // Lock gesture
-              _GlassIconButton(
-                icon: Icons.lock_open_rounded,
-                size: 19,
-                onTap: onToggleLock,
-              ),
-              const SizedBox(width: 2),
               // Playback speed
               _MiniChip(label: speedLabel, onTap: onShowSpeed),
               const SizedBox(width: 6),
@@ -144,7 +135,7 @@ class _TopBar extends ConsumerWidget {
                 active: sleepActive,
               ),
               const SizedBox(width: 2),
-              // Subtitle
+              // Subtitle — white when off, orange when on.
               _GlassIconButton(
                 icon: subtitlesEnabled && hasSubtitles
                     ? Icons.subtitles_rounded
@@ -152,7 +143,6 @@ class _TopBar extends ConsumerWidget {
                 size: 19,
                 onTap: onShowSubtitle,
                 active: subtitlesEnabled && hasSubtitles,
-                dim: !hasSubtitles,
               ),
               const SizedBox(width: 6),
               // A-B repeat — tap to set A, again for B (loops), again to clear.

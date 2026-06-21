@@ -51,11 +51,16 @@ class PositionService {
   }
 
   /// Moves a saved position from [oldPath] to [newPath] — used when a video
-  /// file is renamed on disk, so its resume point isn't lost.
+  /// file is renamed on disk, so its resume point isn't lost. Never throws, and
+  /// only drops the old key once the new one is written so a failed write keeps
+  /// the resume point intact.
   Future<void> rename(String oldPath, String newPath) async {
-    final p = await _p;
-    final ms = p.getInt(_key(oldPath));
-    if (ms != null) await p.setInt(_key(newPath), ms);
-    await p.remove(_key(oldPath));
+    try {
+      final p = await _p;
+      final ms = p.getInt(_key(oldPath));
+      if (ms == null) return;
+      await p.setInt(_key(newPath), ms); // write new first
+      await p.remove(_key(oldPath)); // only drop old after new succeeded
+    } catch (_) {}
   }
 }

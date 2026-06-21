@@ -81,7 +81,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Future<void> _openVideo(BuildContext context, VideoFile vf) async {
+  Future<void> _openVideo(
+    BuildContext context,
+    VideoFile vf, {
+    List<VideoFile> playlist = const [],
+    int index = -1,
+  }) async {
     final savedPos = await PositionService.instance.load(vf.path);
     Duration? resumeFrom;
     if (savedPos != null && savedPos > Duration.zero && context.mounted) {
@@ -97,6 +102,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           filePath: vf.path,
           fileName: vf.name,
           resumeFrom: resumeFrom,
+          // When opened from a search result we pass the video's folder as the
+          // playlist so next/previous and auto-play-next work just like opening
+          // it from inside its folder.
+          folderVideos: playlist,
+          initialIndex: index,
         ),
       ),
     );
@@ -160,7 +170,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             const SizedBox(width: 4),
           ],
         ),
-        body: LibraryScreen(onOpenVideo: (vf) => _openVideo(context, vf)),
+        body: LibraryScreen(
+          onOpenVideo: (vf, {playlist = const [], index = -1}) =>
+              _openVideo(context, vf, playlist: playlist, index: index),
+        ),
       ),
     );
   }

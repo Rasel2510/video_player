@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -20,7 +21,8 @@ import '../presentation/widgets/smooth_page_route.dart';
 import 'player_screen.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
-  final void Function(VideoFile) onOpenVideo;
+  final void Function(VideoFile vf,
+      {List<VideoFile> playlist, int index}) onOpenVideo;
   const LibraryScreen({super.key, required this.onOpenVideo});
 
   @override
@@ -37,6 +39,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchQuery = '';
   bool _searchOpen = false;
+  // Debounce so a full library filter + rebuild doesn't run on every keystroke.
+  Timer? _searchDebounce;
+
+  // Memoized video-name search result — recomputed only when the query or the
+  // folder list actually changes, not on every unrelated rebuild.
+  List<({VideoFile video, VideoFolder folder})> _matchedCache = const [];
+  String? _matchedForQuery;
+  List<VideoFolder>? _matchedForFolders;
 
   final Map<String, _FolderResume?> _folderResumes = {};
 
@@ -48,7 +58,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _searchCtrl.addListener(() {
-      setState(() => _searchQuery = _searchCtrl.text.trim().toLowerCase());
+      // Always restart the timer and read the live text when it fires — never
+      // capture the text here, or a quick type-then-delete could leave a stale
+      // pending change that applies a query the field no longer shows.
+      _searchDebounce?.cancel();
+      _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+        if (!mounted) return;
+        final q = _searchCtrl.text.trim().toLowerCase();
+        if (q != _searchQuery) setState(() => _searchQuery = q);
+      });
     });
     _checkPermissionsAndLoad();
   }
@@ -56,6 +74,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -220,10 +239,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   /// Videos matching the query by filename, searched across every folder —
   /// not just the ones whose folder name also matches — so a video can be
-  /// found without knowing which folder it lives in.
+  /// found without knowing which folder it lives in. Memoized so an unrelated
+  /// rebuild (resume loaded, new-badge change, …) doesn't re-scan the whole
+  /// library; recomputed only when the query or the folder list changes.
   List<({VideoFile video, VideoFolder folder})> _matchedVideos(
       List<VideoFolder> folders) {
     if (_searchQuery.isEmpty) return const [];
+    if (_matchedForQuery == _searchQuery &&
+        identical(_matchedForFolders, folders)) {
+      return _matchedCache;
+    }
     final out = <({VideoFile video, VideoFolder folder})>[];
     for (final folder in folders) {
       for (final v in folder.videos) {
@@ -232,10 +257,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         }
       }
     }
+    _matchedForQuery = _searchQuery;
+    _matchedForFolders = folders;
+    _matchedCache = out;
     return out;
   }
 
   void _toggleSearch() {
+    _searchDebounce?.cancel();
     setState(() {
       _searchOpen = !_searchOpen;
       if (!_searchOpen) {
@@ -373,7 +402,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                       return SearchVideoRow(
                         video: match.video,
                         folderName: match.folder.name,
-                        onTap: () => widget.onOpenVideo(match.video),
+                        onTap: () => widget.onOpenVideo(
+                          match.video,
+                          playlist: match.folder.videos,
+                          index: match.folder.videos.indexOf(match.video),
+                        ),
                       );
                     },
                   ),

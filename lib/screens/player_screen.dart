@@ -51,6 +51,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   );
   Timer? _lockIconLocalTimer;
 
+  // True once the route is popping. dispose() resets the provider to a fresh
+  // PlayerState (isInitialized=false), which would otherwise re-show the
+  // loading spinner over the screen while the pop transition is still running —
+  // looking like the app "loads" on the way out. While leaving we show the
+  // black background instead so the exit is clean and instant.
+  bool _leaving = false;
+
   // Convenience getter — ref.read(playerProvider.notifier) repeated in build()
   // is equivalent each call (provider identity is stable), but a getter makes
   // the intent clear and avoids typos.
@@ -216,7 +223,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Widget build(BuildContext context) {
     return PopScope(
       onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) await _notifier.leaveScreen();
+        if (didPop) {
+          // Set before leaveScreen() resets the provider state so the rebuild
+          // it triggers shows black instead of the loading spinner.
+          _leaving = true;
+          await _notifier.leaveScreen();
+        }
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -332,7 +344,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   if (!isInitialized ||
                       ref.read(playerProvider.notifier).videoController ==
                           null) {
-                    return const Center(child: CircularProgressIndicator());
+                    // While popping, don't flash the spinner over the outgoing
+                    // screen — just let the black Scaffold show through.
+                    return _leaving
+                        ? const SizedBox.shrink()
+                        : const Center(child: CircularProgressIndicator());
                   }
 
                   final subStyle = ref.watch(subtitleStyleProvider);

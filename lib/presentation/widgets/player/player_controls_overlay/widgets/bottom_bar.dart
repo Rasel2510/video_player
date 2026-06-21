@@ -7,6 +7,7 @@ class _BottomBar extends StatelessWidget {
   final VoidCallback onToggleFullscreen;
   final VoidCallback onCycleFitMode;
   final VoidCallback onPip;
+  final VoidCallback onToggleLock;
 
   const _BottomBar({
     required this.onSeekStart,
@@ -15,6 +16,7 @@ class _BottomBar extends StatelessWidget {
     required this.onToggleFullscreen,
     required this.onCycleFitMode,
     required this.onPip,
+    required this.onToggleLock,
   });
 
   @override
@@ -34,6 +36,7 @@ class _BottomBar extends StatelessWidget {
             onCycleFitMode: onCycleFitMode,
             onToggleFullscreen: onToggleFullscreen,
             onPip: onPip,
+            onToggleLock: onToggleLock,
           ),
         ],
       ),
