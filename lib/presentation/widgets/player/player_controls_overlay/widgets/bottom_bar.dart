@@ -4,37 +4,23 @@ class _BottomBar extends StatelessWidget {
   final void Function(double) onSeekStart;
   final void Function(double) onSeekUpdate;
   final void Function(double) onSeekEnd;
+  final VoidCallback onToggleFullscreen;
   final VoidCallback onCycleFitMode;
-  final VoidCallback onShowSpeed;
-  final VoidCallback onShowVolume;
-  final VoidCallback onShowAudio;
-  final VoidCallback onShowSubtitle;
   final VoidCallback onPip;
-  final VoidCallback onSleepTimer;
-  final VoidCallback onAudioMode;
-  final VoidCallback onToggleRepeat;
-  final VoidCallback onCycleAbRepeat;
 
   const _BottomBar({
     required this.onSeekStart,
     required this.onSeekUpdate,
     required this.onSeekEnd,
+    required this.onToggleFullscreen,
     required this.onCycleFitMode,
-    required this.onShowSpeed,
-    required this.onShowVolume,
-    required this.onShowAudio,
-    required this.onShowSubtitle,
     required this.onPip,
-    required this.onSleepTimer,
-    required this.onAudioMode,
-    required this.onToggleRepeat,
-    required this.onCycleAbRepeat,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -43,21 +29,16 @@ class _BottomBar extends StatelessWidget {
             onSeekUpdate: onSeekUpdate,
             onSeekEnd: onSeekEnd,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           _BottomBarActions(
-            onShowSpeed: onShowSpeed,
-            onShowVolume: onShowVolume,
-            onShowAudio: onShowAudio,
-            onShowSubtitle: onShowSubtitle,
             onCycleFitMode: onCycleFitMode,
+            onToggleFullscreen: onToggleFullscreen,
             onPip: onPip,
-            onSleepTimer: onSleepTimer,
-            onAudioMode: onAudioMode,
-            onToggleRepeat: onToggleRepeat,
-            onCycleAbRepeat: onCycleAbRepeat,
           ),
         ],
       ),
     );
   }
 }
+
+
