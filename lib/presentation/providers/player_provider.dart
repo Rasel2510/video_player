@@ -143,6 +143,22 @@ class PlayerNotifier extends Notifier<PlayerState> {
   bool _hasStartedPlaying = false;
   final List<StreamSubscription> _subs = [];
 
+  // ── Software-decode fallback ───────────────────────────────────────────────
+  // Some streams — most commonly 10-bit HEVC (Main 10) — can't be decoded by
+  // the device's MediaCodec hardware decoder. libmpv then plays the audio but
+  // renders no video (black picture). When that happens we transparently
+  // re-open the file with hardware decoding disabled, forcing FFmpeg software
+  // decode (the same path VLC uses), so the picture appears. Hardware decoding
+  // is kept for everything else (fast, battery-friendly).
+  Timer? _videoWatchdog;
+  // True once a real video frame has been rendered (width > 0 emitted).
+  bool _gotVideoFrame = false;
+  // True once the current player has been switched to software decoding so the
+  // watchdog doesn't loop trying to fall back again.
+  bool _softwareDecode = false;
+  // True once the file is known to contain a real (non-placeholder) video track.
+  bool _hasRealVideoTrack = false;
+
   // Externally loaded subtitle files (.srt/.vtt/…). media_kit applies these via
   // SubtitleTrack.uri but does not surface them in the tracks stream, so we keep
   // them here and merge them into the displayed list ourselves.
@@ -194,6 +210,10 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _audioMode = false;
     _leftScreen = false;
     _hasStartedPlaying = false;
+    _gotVideoFrame = false;
+    _softwareDecode = false;
+    _hasRealVideoTrack = false;
+    _videoWatchdog?.cancel();
 
     // FIX #OPT-OPEN: Kick off the prefs / device-volume / brightness reads in
     // parallel with opening the file instead of blocking the decode on them.
@@ -325,6 +345,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
       if (v) {
         markReady();
         _hasStartedPlaying = true;
+        _startVideoWatchdog();
       } else if (_hasStartedPlaying && !_isDisposing) {
         // Paused by user or end-of-file — persist position immediately.
         _savePosition();
@@ -367,6 +388,12 @@ class PlayerNotifier extends Notifier<PlayerState> {
       // since they never appear in the demuxed stream.
       final audio =
           v.audio.where((t) => !TrackLabels.isPlaceholderId(t.id)).toList();
+      // Note whether the file actually carries a video track — the watchdog
+      // only falls back to software decode for files that should show a picture
+      // (so an audio-only file never triggers a needless re-open).
+      if (v.video.any((t) => !TrackLabels.isPlaceholderId(t.id))) {
+        _hasRealVideoTrack = true;
+      }
       final subs = [
         ...v.subtitle.where((t) => !TrackLabels.isPlaceholderId(t.id)),
         ..._externalSubtitles,
@@ -380,7 +407,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
     }));
 
     _subs.add(_player!.stream.width.listen((w) {
-      if (w != null && w > 0) markReady();
+      if (w != null && w > 0) {
+        _gotVideoFrame = true;
+        _videoWatchdog?.cancel();
+        markReady();
+      }
     }));
 
     // Auto-play next video when current one finishes.
@@ -412,6 +443,47 @@ class PlayerNotifier extends Notifier<PlayerState> {
     Future.delayed(const Duration(seconds: 4), () {
       if (!_isDisposing) markReady();
     });
+  }
+
+  // ── Software-decode fallback ───────────────────────────────────────────────
+
+  /// Arms a one-shot watchdog when playback begins. If audio is running but no
+  /// video frame has rendered shortly after, the device can't hardware-decode
+  /// this stream — so we re-open it with software decoding.
+  void _startVideoWatchdog() {
+    // Already on software decode (nothing left to fall back to) or a frame has
+    // already arrived — no watchdog needed.
+    if (_softwareDecode || _gotVideoFrame) return;
+    _videoWatchdog?.cancel();
+    _videoWatchdog = Timer(const Duration(milliseconds: 2500), () {
+      if (_isDisposing || _gotVideoFrame || _softwareDecode) return;
+      // Audio is playing but the picture is still black and the file does carry
+      // a video track → the hardware decoder silently failed. Retry in software.
+      if (_hasRealVideoTrack && state.isPlaying) _fallbackToSoftwareDecode();
+    });
+  }
+
+  /// Re-opens the current file with hardware decoding disabled so libmpv decodes
+  /// it in pure software (FFmpeg) — the same approach VLC uses to play streams
+  /// the device's MediaCodec can't handle (e.g. some 10-bit HEVC). Resumes from
+  /// the current position. Runs at most once per file.
+  Future<void> _fallbackToSoftwareDecode() async {
+    if (_softwareDecode || _isDisposing || _player == null) return;
+    final path = _currentPath;
+    if (path == null) return;
+    _softwareDecode = true;
+    final resumeAt = state.position;
+    try {
+      // `hwdec=no` forces software decode; it's a runtime mpv property so it
+      // takes effect on the re-open below without rebuilding the controller.
+      await (_player!.platform as dynamic)?.setProperty('hwdec', 'no');
+    } catch (_) {}
+    try {
+      await _player!.open(
+        Media(path, start: resumeAt > Duration.zero ? resumeAt : null),
+        play: true,
+      );
+    } catch (_) {}
   }
 
   // ── Position save ──────────────────────────────────────────────────────────
@@ -525,6 +597,10 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _currentArtPath = null;
     _externalSubtitles.clear();
     _hasStartedPlaying = false;
+    _gotVideoFrame = false;
+    _softwareDecode = false;
+    _hasRealVideoTrack = false;
+    _videoWatchdog?.cancel();
 
     state = state.copyWith(
       currentIndex: index,
@@ -551,6 +627,13 @@ class PlayerNotifier extends Notifier<PlayerState> {
       _startHideTimer();
       _syncMediaSessionMetadata();
     });
+
+    // Restore hardware decoding for the new file. The player instance is reused
+    // across videos, so a previous software-decode fallback would otherwise
+    // leave `hwdec=no` set and needlessly software-decode the next video too.
+    try {
+      await (_player!.platform as dynamic)?.setProperty('hwdec', 'auto-safe');
+    } catch (_) {}
 
     // Configure player properties in parallel before opening the file.
     await Future.wait([
@@ -736,6 +819,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   void _disposeStreams() {
     _saveTimer?.cancel();
+    _videoWatchdog?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
