@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -95,6 +97,15 @@ class ThumbnailService {
         quality: 72,
       );
 
+      // Software fallback: video_thumbnail relies on the system's
+      // MediaMetadataRetriever, which uses the device's hardware decoders and
+      // returns null for streams it can't decode (commonly 10-bit HEVC). Decode
+      // a frame with libmpv/FFmpeg in software instead — the same path the
+      // player falls back to — so these videos still get a thumbnail.
+      if (bytes == null || bytes.isEmpty) {
+        bytes = await _softwareThumbnail(videoPath);
+      }
+
       if (bytes == null || bytes.isEmpty) {
         _resolved[videoPath] = null;
         return null;
@@ -109,6 +120,82 @@ class ThumbnailService {
     } finally {
       _release();
       _inFlight.remove(videoPath);
+    }
+  }
+
+  // ── Software (libmpv) thumbnail fallback ──────────────────────────────────
+  // libmpv players are far heavier than MediaMetadataRetriever, so this path is
+  // capped at 1 at a time — it only runs for the minority of videos the system
+  // retriever couldn't decode.
+  int _softwareActive = 0;
+  final List<Completer<void>> _softwareWaiters = [];
+
+  Future<void> _acquireSoftware() async {
+    if (_softwareActive < 1) {
+      _softwareActive++;
+      return;
+    }
+    final c = Completer<void>();
+    _softwareWaiters.add(c);
+    await c.future;
+  }
+
+  void _releaseSoftware() {
+    if (_softwareWaiters.isNotEmpty) {
+      _softwareWaiters.removeAt(0).complete();
+    } else {
+      _softwareActive--;
+    }
+  }
+
+  /// Decodes a single frame ~1 s into [videoPath] with libmpv forced into
+  /// software (FFmpeg) decoding, then returns it as JPEG bytes. Returns null on
+  /// any failure. Used only when the system thumbnail extractor fails.
+  Future<Uint8List?> _softwareThumbnail(String videoPath) async {
+    await _acquireSoftware();
+    Player? player;
+    try {
+      player = Player();
+      final platform = player.platform as dynamic;
+      // Force software decode (the whole point of this fallback) and skip audio.
+      try {
+        await platform?.setProperty('hwdec', 'no');
+        await platform?.setProperty('aid', 'no');
+        // Downscale the decoded frame so the screenshot (and cached JPEG) is
+        // thumbnail-sized rather than full source resolution.
+        await platform?.setProperty('vf', 'scale=240:-2');
+      } catch (_) {}
+
+      // Wait until a frame has actually been decoded before screenshotting.
+      final frame = Completer<void>();
+      final sub = player.stream.width.listen((w) {
+        if (w != null && w > 0 && !frame.isCompleted) frame.complete();
+      });
+
+      await player.open(Media(videoPath), play: true);
+      // Seek a little in to skip black intro frames, mirroring the 1 s timeMs
+      // used for the system extractor above.
+      try {
+        await player.seek(const Duration(seconds: 1));
+      } catch (_) {}
+
+      await frame.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {},
+      );
+      await sub.cancel();
+
+      if (frame.isCompleted) {
+        return await player.screenshot(format: 'image/jpeg');
+      }
+      return null;
+    } catch (_) {
+      return null;
+    } finally {
+      try {
+        await player?.dispose();
+      } catch (_) {}
+      _releaseSoftware();
     }
   }
 

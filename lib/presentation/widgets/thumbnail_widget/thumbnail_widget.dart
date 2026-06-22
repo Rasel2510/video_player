@@ -74,7 +74,10 @@ class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
     return SizedBox(
       width: widget.width,
       height: widget.height,
-      child: _buildInner(context),
+      // The shimmer animates every frame while loading; a RepaintBoundary keeps
+      // that per-frame repaint confined to the small thumbnail rect instead of
+      // bubbling up and redrawing the whole card (title, badges, progress bar).
+      child: RepaintBoundary(child: _buildInner(context)),
     );
   }
 
@@ -147,14 +150,14 @@ class _Shimmer extends AnimatedWidget {
   const _Shimmer({required Animation<double> animation})
       : super(listenable: animation);
 
-  // Const white container — reused across every frame; only the Opacity
-  // wrapper is rebuilt, eliminating the Color.fromRGBO allocation per tick.
-  static const _kWhiteBox = ColoredBox(color: Colors.white);
-
   @override
   Widget build(BuildContext context) {
-    final value = (listenable as Animation<double>).value;
-    return Opacity(opacity: value, child: _kWhiteBox);
+    final value = (listenable as Animation<double>).value.clamp(0.0, 1.0);
+    // Paint a translucent white rect directly rather than wrapping a white box
+    // in Opacity: Opacity triggers a saveLayer (offscreen buffer) every frame,
+    // which is costly on low-end GPUs. The per-frame Color is a trivial CPU
+    // allocation by comparison, and there's no layer to composite.
+    return ColoredBox(color: Color.fromRGBO(255, 255, 255, value));
   }
 }
 
