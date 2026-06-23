@@ -159,6 +159,9 @@ class ThumbnailService {
       final platform = player.platform as dynamic;
       // Force software decode (the whole point of this fallback) and skip audio.
       try {
+        // A bare Player (no VideoController) defaults to vid=no — force video
+        // decoding on so a frame exists to screenshot.
+        await platform?.setProperty('vid', 'auto');
         await platform?.setProperty('hwdec', 'no');
         await platform?.setProperty('aid', 'no');
         // Downscale the decoded frame so the screenshot (and cached JPEG) is

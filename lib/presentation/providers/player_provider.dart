@@ -151,8 +151,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
   // decode (the same path VLC uses), so the picture appears. Hardware decoding
   // is kept for everything else (fast, battery-friendly).
   Timer? _videoWatchdog;
-  // True once a real video frame has been rendered (width > 0 emitted).
-  bool _gotVideoFrame = false;
+  // True once a real video frame has actually been *painted*. This is driven by
+  // VideoController.waitUntilFirstFrameRendered — NOT by the width/videoParams
+  // stream, which fires from the container header even when the hardware
+  // decoder silently produces no frames (the exact HEVC failure case).
+  bool _frameRendered = false;
   // True once the current player has been switched to software decoding so the
   // watchdog doesn't loop trying to fall back again.
   bool _softwareDecode = false;
@@ -210,7 +213,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _audioMode = false;
     _leftScreen = false;
     _hasStartedPlaying = false;
-    _gotVideoFrame = false;
+    _frameRendered = false;
     _softwareDecode = false;
     _hasRealVideoTrack = false;
     _videoWatchdog?.cancel();
@@ -406,12 +409,12 @@ class PlayerNotifier extends Notifier<PlayerState> {
       );
     }));
 
+    // NOTE: width fires from the container/decoder params and does NOT prove a
+    // frame was painted, so it only clears the loading spinner — it must not
+    // cancel the software-decode watchdog (that's keyed off an actual rendered
+    // frame in _startVideoWatchdog).
     _subs.add(_player!.stream.width.listen((w) {
-      if (w != null && w > 0) {
-        _gotVideoFrame = true;
-        _videoWatchdog?.cancel();
-        markReady();
-      }
+      if (w != null && w > 0) markReady();
     }));
 
     // Auto-play next video when current one finishes.
@@ -451,14 +454,19 @@ class PlayerNotifier extends Notifier<PlayerState> {
   /// video frame has rendered shortly after, the device can't hardware-decode
   /// this stream — so we re-open it with software decoding.
   void _startVideoWatchdog() {
-    // Already on software decode (nothing left to fall back to) or a frame has
-    // already arrived — no watchdog needed.
-    if (_softwareDecode || _gotVideoFrame) return;
+    // Already on software decode — nothing left to fall back to.
+    if (_softwareDecode) return;
+    final controller = _videoController;
+    if (controller == null) return;
     _videoWatchdog?.cancel();
-    _videoWatchdog = Timer(const Duration(milliseconds: 2500), () {
-      if (_isDisposing || _gotVideoFrame || _softwareDecode) return;
-      // Audio is playing but the picture is still black and the file does carry
-      // a video track → the hardware decoder silently failed. Retry in software.
+    // Authoritative "a frame was actually painted" signal. For a stream the
+    // hardware decoder can't handle this future never completes, so the timer
+    // below fires and we retry in software.
+    controller.waitUntilFirstFrameRendered.then((_) => _frameRendered = true);
+    _videoWatchdog = Timer(const Duration(milliseconds: 3000), () {
+      if (_isDisposing || _frameRendered || _softwareDecode) return;
+      // Audio is playing but no frame has painted and the file carries a video
+      // track → the hardware decoder silently failed. Retry in software.
       if (_hasRealVideoTrack && state.isPlaying) _fallbackToSoftwareDecode();
     });
   }
@@ -597,7 +605,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _currentArtPath = null;
     _externalSubtitles.clear();
     _hasStartedPlaying = false;
-    _gotVideoFrame = false;
+    _frameRendered = false;
     _softwareDecode = false;
     _hasRealVideoTrack = false;
     _videoWatchdog?.cancel();
